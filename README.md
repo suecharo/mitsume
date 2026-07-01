@@ -10,7 +10,7 @@
 - container が running か
 - 任意コマンドの exit code
 
-依存ゼロで、`go install` するか Dockerfile に `ADD` するだけで動く。設定ファイル無しで動くモード (`notify` / `run` / `ping`) を最初に用意していて、既存の script や systemd unit の末尾に 1 行差し込むだけで通知が飛ぶ。
+依存ゼロで、`go install` するか Docker image を pull するだけで動く。設定ファイル無しで動くモード (`notify` / `run` / `ping` / `version`) を最初に用意していて、既存の script や systemd unit の末尾に 1 行差し込むだけで通知が飛ぶ。
 
 ## こういう困りごと向け
 
@@ -38,8 +38,6 @@
 
 ## 5 分で試す
 
-> 実装は未着手で release binary もまだ無い ([Status](#status))。下のコマンドは公開後に動く形。今は docs だけ読めば OK。
-
 Slack ワークスペースで Incoming Webhook を 1 本発行してから始める。
 
 ```bash
@@ -57,11 +55,40 @@ mitsume run --name daily-report -- /usr/local/bin/daily-report.sh
 
 ## Install
 
+3 通りの入手方法がある。用途に応じて選ぶ。
+
+### GitHub Releases から binary をダウンロード
+
+Linux / macOS / Windows の pre-built binary を [Releases](https://github.com/suecharo/mitsume/releases) から落とす。`checksums.txt` の sha256 で integrity を確認できる。
+
 ```bash
-go install github.com/suecharo/mitsume@latest
+# Linux amd64 の例 (arm64 / darwin / windows は archive 名を差し替え)
+curl -fL -o mitsume.tar.gz \
+  https://github.com/suecharo/mitsume/releases/download/v0.1.0/mitsume_0.1.0_linux_amd64.tar.gz
+tar -xzf mitsume.tar.gz
+sudo install -m 0755 mitsume /usr/local/bin/mitsume
+mitsume version
 ```
 
-release binary が配布され次第、GitHub Releases からも取れるようにする。
+### `go install`
+
+Go 1.23 以降なら source build できる。version 情報は埋め込まれない (`version=dev` になる)。
+
+```bash
+go install github.com/suecharo/mitsume/cmd/mitsume@latest
+mitsume version
+```
+
+### Docker image
+
+`ghcr.io/suecharo/mitsume` から distroless base の multi-arch (linux/amd64, linux/arm64) image を pull できる。
+
+```bash
+docker pull ghcr.io/suecharo/mitsume:v0.1.0
+docker run --rm ghcr.io/suecharo/mitsume:v0.1.0 version
+```
+
+container の中で運用する形は [docs/recipes.md § mitsume 自身を container 化したい](docs/recipes.md#mitsume-自身を-container-化したい) を参照。
 
 ## Documentation
 
@@ -85,7 +112,7 @@ release binary が配布され次第、GitHub Releases からも取れるよう�
 
 ## Status
 
-現在は仕様策定が完了した段階で、Go の実装 (`go.mod` 含む) はまだ入っていない。`docs/` を SSOT として、これから実装を進める。上の Install と 5 分クイックスタートは release binary が配布されるまで動かない。
+コア実装は完了し、release engineering (GoReleaser + GitHub Actions + Docker image) を整えた段階。v0.1.0 tag が切られるまで `go install` は動くが GitHub Releases / `ghcr.io/suecharo/mitsume` の image は未公開。tag 打刻後にすべての install 手段が有効になる。
 
 ## License
 

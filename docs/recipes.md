@@ -2,7 +2,7 @@
 
 「〜したい」から引く運用パターン集。Slack Webhook の発行や env の置き方は済んでいる前提で書く。ゼロから通しで動かす手順は [getting-started.md](getting-started.md) を参照。
 
-> 実装は未着手で release binary もまだ無い。ここで参照している `v0.1.0` の Dockerfile URL や `ghcr.io/suecharo/mitsume:v0.1.0` image は release 後に有効になる。
+> ここで参照している `v0.1.0` の release archive URL や `ghcr.io/suecharo/mitsume:v0.1.0` image は tag 打刻後に有効になる。tag が未打刻の間はローカル build (`make build`) の binary で試すか、Status に載っている手順で入手する。
 
 - [shell script 末尾で失敗時だけ通知したい](#shell-script-末尾で失敗時だけ通知したい)
 - [systemd unit の失敗を丸ごと拾いたい](#systemd-unit-の失敗を丸ごと拾いたい)
@@ -158,8 +158,9 @@ container の主プロセスを `mitsume run` の子にする。子が exit す�
 
 ```dockerfile
 FROM debian:slim
-ADD https://github.com/suecharo/mitsume/releases/download/v0.1.0/mitsume-linux-amd64 /usr/local/bin/mitsume
-RUN chmod +x /usr/local/bin/mitsume
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/suecharo/mitsume:v0.1.0 /mitsume /usr/local/bin/mitsume
 COPY app /app
 ENV MITSUME_HOST=api-prod-01
 ENTRYPOINT ["mitsume", "run", "--name", "api-server", "--"]
@@ -422,8 +423,7 @@ mitsume 焼き込み image の Dockerfile:
 FROM debian:slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-ADD https://github.com/suecharo/mitsume/releases/download/v0.1.0/mitsume-linux-amd64 /usr/local/bin/mitsume
-RUN chmod +x /usr/local/bin/mitsume
+COPY --from=ghcr.io/suecharo/mitsume:v0.1.0 /mitsume /usr/local/bin/mitsume
 ENTRYPOINT ["/usr/local/bin/mitsume"]
 CMD ["watch", "--config", "/etc/mitsume/mitsume.json"]
 ```

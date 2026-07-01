@@ -1,5 +1,4 @@
-// Command mitsume は死活監視 CLI の entry point。5 サブコマンド (ping / notify /
-// check / watch / run) を持つ。実仕様は docs/cli.md に従う。
+// Command mitsume は死活監視 CLI の entry point。実仕様は docs/cli.md に従う。
 package main
 
 import (
@@ -20,6 +19,7 @@ Subcommands:
   check [--config PATH]  evaluate all checks once (external cron use)
   watch [--config PATH]  daemon: evaluate checks on their intervals
   run --name X -- CMD    supervise a child process
+  version                print version, commit, and build date
 
 Common flags:
   --dry-run              skip Slack POST / heartbeat write; print payload to stderr
@@ -64,6 +64,8 @@ func run(args []string) int {
 		// 子に転送する (docs/cli.md § run § 動作)。main の ctx cancel と
 		// 転送の二重発火を避けるため background を渡す。
 		return runRun(context.Background(), subArgs)
+	case "version":
+		return runVersion(subArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "mitsume: unknown subcommand %q\n\n", sub)
 		fmt.Fprint(os.Stderr, usage)

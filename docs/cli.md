@@ -1,6 +1,6 @@
 # CLI リファレンス
 
-mitsume の 5 サブコマンドの引数・環境変数・exit code をまとめたリファレンス。「このサブコマンドはどう呼ぶんだっけ」を引くのに使う。用途で使い分けるためのパターン集は [recipes.md](recipes.md) 側にある。
+mitsume の 6 サブコマンドの引数・環境変数・exit code をまとめたリファレンス。「このサブコマンドはどう呼ぶんだっけ」を引くのに使う。用途で使い分けるためのパターン集は [recipes.md](recipes.md) 側にある。
 
 ## サブコマンド一覧
 
@@ -11,10 +11,11 @@ mitsume の 5 サブコマンドの引数・環境変数・exit code をまと�
 | `mitsume check [--config <path>]` | 失敗 check ごとに 1 通 | read only | 必須 | 外部 cron 型ヘルスチェック |
 | `mitsume watch [--config <path>]` | 失敗 check ごとに 1 通 | read only | 必須 | 常駐ヘルスチェック |
 | `mitsume run [--name <name>] -- <cmd>` | 子プロセス終了時に 1 通 | 触らない | 無くても動く | 子プロセス supervisor |
+| `mitsume version` | 出さない | 触らない | 触らない | binary の version / commit / build date を出す |
 
-`ping` / `notify` / `run` は設定 JSON 無しで動く。`check` / `watch` は設定 JSON が必要。
+`ping` / `notify` / `run` / `version` は設定 JSON 無しで動く。`check` / `watch` は設定 JSON が必要。
 
-`--dry-run` はどのサブコマンドでも使える。詳細は [共通 flag](#共通-flag) を参照。
+`--dry-run` はどのサブコマンドでも使える (`version` を除く)。詳細は [共通 flag](#共通-flag) を参照。
 
 ## `mitsume ping`
 
@@ -311,11 +312,54 @@ mitsume run --name api-server -- /app/server
 
 子プロセス終了時に 1 通通知する (`--quiet-on-success` 時は失敗時のみ)。heartbeat file には触らない。`--slack-webhook-url-env` または `MITSUME_SLACK_WEBHOOK_URL` で webhook URL が解決すれば設定 JSON は無くてもよい。
 
+## `mitsume version`
+
+### 概要
+
+binary に埋め込まれた version / commit / build date と runtime の Go version を stdout に出して exit する。release binary の identification と bug report のときの照合用。
+
+### 使用例
+
+```bash
+mitsume version
+```
+
+出力例:
+
+```text
+mitsume version=0.1.0, commit=abc123..., built=2026-07-01T12:34:56Z, go=go1.23.5
+```
+
+### 引数と flag
+
+引数と flag は受け取らない。位置引数を渡すと exit 1。
+
+### 参照する環境変数
+
+無し。
+
+### 動作
+
+- `version` / `commit` / `date` は release build 時に goreleaser の ldflags で埋め込まれる。source build (`go build`) では default 値 (`dev` / `none` / `unknown`) が入る。
+- `go` は `runtime.Version()` (build で使った Go toolchain の version)。
+- 通知は出さない。heartbeat file にも触らない。設定 JSON も読まない。
+
+### exit code
+
+| code | 意味 |
+|---|---|
+| `0` | version を出して正常終了 |
+| `1` | 位置引数を渡された、または stdout write 失敗 |
+
+### 通知 / heartbeat file / 設定 JSON
+
+通知は出さない。heartbeat file には触らない。設定 JSON は読まない。
+
 ## 共通 flag
 
 ### `--dry-run`
 
-全サブコマンド (`ping` / `notify` / `check` / `watch` / `run`) で効く。設定の試運転、通知文の事前確認、systemd unit の commissioning に使う。
+`ping` / `notify` / `check` / `watch` / `run` で効く (`version` は副作用が無いので対象外)。設定の試運転、通知文の事前確認、systemd unit の commissioning に使う。
 
 | 対象 | 挙動 |
 |---|---|

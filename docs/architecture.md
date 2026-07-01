@@ -97,7 +97,7 @@ flowchart LR
 
 ## サブコマンドの責務
 
-サブコマンドは 5 つ。3 直交軸のどれをどう組み合わせて使うかで役割が決まる。
+サブコマンドは 6 つ。3 直交軸のどれをどう組み合わせて使うかで役割が決まる。`version` は監視軸には触らないが、release binary の identification 用に別枠で持つ。
 
 | サブコマンド | 責務 | 通知 | heartbeat file | 設定 JSON |
 |---|---|---|---|---|
@@ -106,17 +106,18 @@ flowchart LR
 | `mitsume check [--config]` | 全 check を 1 回評価して exit (外部 cron 用) | 失敗ごとに 1 通 | deadman を含むときのみ read | 必須 |
 | `mitsume watch [--config]` | 常駐して `interval` ごとに評価 (systemd 用) | 失敗ごとに 1 通 | deadman を含むときのみ read | 必須 |
 | `mitsume run -- <cmd>` | 子プロセスの supervisor | 子の終了で 1 通 | 触らない | 無くても動く |
+| `mitsume version` | binary の version / commit / build date を出す | 出さない | 触らない | 触らない |
 
 通知が Slack に出るのは 2 系統のみ。
 
 1. **明示イベント**: `notify` の直接呼び出し、`run` の内部呼び出し。
 2. **能動検出の failure 確定**: `check` / `watch` の評価で `confirm` burst を通ったとき。
 
-`ping` は heartbeat file の更新に専念し、通知は出さない。`run` は `notify` のみ呼び、`ping` 相当の処理は呼ばない。dead-man's switch と連動させるときは shell で `mitsume run -- <cmd> && mitsume ping <job>` の形で組む。
+`ping` は heartbeat file の更新に専念し、通知は出さない。`run` は `notify` のみ呼び、`ping` 相当の処理は呼ばない。dead-man's switch と連動させるときは shell で `mitsume run -- <cmd> && mitsume ping <job>` の形で組む。`version` は監視ロジックを一切持たず、release binary の identification と bug report のときの照合用に stdout へ書き出すのみ ([cli.md § mitsume version](cli.md#mitsume-version))。
 
-「設定 JSON 不要モード」(`ping` / `notify` / `run`) は最重要 UX として維持する。既存 script / cron / Dockerfile に 1 行差し込むだけで通知が飛ぶ、が拡張のときにも壊れないようにする。
+「設定 JSON 不要モード」(`ping` / `notify` / `run` / `version`) は最重要 UX として維持する。既存 script / cron / Dockerfile に 1 行差し込むだけで通知が飛ぶ、が拡張のときにも壊れないようにする。
 
-共通 flag `--dry-run` は全サブコマンドで効き、Slack への送信抑止 + stderr への payload 出力 + heartbeat file 書き換え抑止をまとめて行う。`run --dry-run` の場合、子プロセスは実際に走らせて通知だけを止める (子の副作用ごと止めると `run` の動作検証にならないため)。
+共通 flag `--dry-run` は `ping` / `notify` / `check` / `watch` / `run` で効き、Slack への送信抑止 + stderr への payload 出力 + heartbeat file 書き換え抑止をまとめて行う (`version` は副作用が無いので対象外)。`run --dry-run` の場合、子プロセスは実際に走らせて通知だけを止める (子の副作用ごと止めると `run` の動作検証にならないため)。
 
 ## 失敗確信モデル
 

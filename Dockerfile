@@ -1,0 +1,3 @@
+FROM gcr.io/distroless/static-debian12@sha256:9c346e4be81b5ca7ff31a0d89eaeade58b0f95cfd3baed1f36083ddb47ca3160
+COPY mitsume /mitsume
+ENTRYPOINT ["/mitsume"]
