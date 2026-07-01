@@ -70,22 +70,14 @@ mock してよいのは mitsume の外側にあるものだけ。内部関数 / 
 - test 間で fixture ファイルを書き換えて共有しない。fixture は read-only、mutation が必要なら `t.TempDir()` にコピーする
 - `go test -shuffle=on` で並び順に依存しないことを確認する
 
-## Mutation testing
+## 境界値・異常系の網羅
 
-Go 環境の mutation testing ツール選定に依存せず、次のテスト作法でテストの検出力を担保する。
+TDD + PBT の網から漏れやすいので、追加テスト作成時のチェックリストとして扱う。
 
-- 境界値 (0 / 1 / 上限 / 上限 - 1 / 上限 + 1) を必ずテストに含める
+- 境界値 (0 / 1 / 上限 / 上限 - 1 / 上限 + 1) を必ず含める
 - エッジケース (空文字列 / 空配列 / nil / 最小・最大 duration / タイムアウト直前) を明示的にテストする
 - 異常系 (parse error / network error / timeout / permission denied / EOF) を必ず含める
 - 「正常系だけ」「happy path だけ」の test file を許さない
-
-## カバレッジについて
-
-カバレッジは目標にしない。行カバレッジを上げるためだけのテストを書かない。
-
-- `go test -cover` の数値を PR merge 基準に使わない
-- 未 cover 行が残るのは、その行が仕様に無いか、境界外エラー処理で cover が難しいかのどちらか。前者なら消す、後者なら残す
-- 仕様書 (`docs/`) の項目に対して、テストが対応しているかを人手で確認する
 
 ## 主要な cross-boundary テスト対象
 
