@@ -26,13 +26,13 @@
 
 用途で選ぶ。全モードで Slack Webhook 1 本を共通で使う。
 
-| やりたいこと | サブコマンド | 設定 JSON |
-|---|---|---|
-| 既存 script から Slack に 1 通投げる | `mitsume notify <msg>` | 不要 |
-| コマンドを wrap して成功 / 失敗を通知 | `mitsume run -- <cmd>` | 不要 |
-| cron / batch の走り忘れを検知 | `mitsume ping <job>` + `mitsume check` / `watch` | 評価側は必要 |
-| 外部 cron から endpoint / file / container を巡回 | `mitsume check --config <path>` | 必要 |
-| systemd で常駐して監視 | `mitsume watch --config <path>` | 必要 |
+| やりたいこと                                      | サブコマンド                                     | 設定 JSON    |
+| ------------------------------------------------- | ------------------------------------------------ | ------------ |
+| 既存 script から Slack に 1 通投げる              | `mitsume notify <msg>`                           | 不要         |
+| コマンドを wrap して成功 / 失敗を通知             | `mitsume run -- <cmd>`                           | 不要         |
+| cron / batch の走り忘れを検知                     | `mitsume ping <job>` + `mitsume check` / `watch` | 評価側は必要 |
+| 外部 cron から endpoint / file / container を巡回 | `mitsume check --config <path>`                  | 必要         |
+| systemd で常駐して監視                            | `mitsume watch --config <path>`                  | 必要         |
 
 各サブコマンドの引数は [docs/cli.md](docs/cli.md)、設定 JSON の schema は [docs/configuration.md](docs/configuration.md) を参照。
 
@@ -89,4 +89,4 @@ release binary が配布され次第、GitHub Releases からも取れるよう�
 
 ## License
 
-[Apache License 2.0](LICENSE)。
+[Apache License 2.0](LICENSE)
