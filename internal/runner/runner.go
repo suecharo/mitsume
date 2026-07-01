@@ -71,6 +71,11 @@ type Runner struct {
 	// ContainerEvaluationTimeout は container checker 呼び出しに被せる hard cap。
 	// 0 なら DefaultContainerEvaluationTimeout。
 	ContainerEvaluationTimeout time.Duration
+	// Subcommand は panic 通知の text に埋め込むサブコマンド名 (例: "check" /
+	// "watch")。空なら "unknown" が入る。RunOnce/RunLoop 側で解決するのではなく
+	// cmd 側が明示することで、同じ Runner を別サブコマンドで使い回した際にも
+	// 通知文が食い違わないように担保する。
+	Subcommand string
 }
 
 // RunOnce は全 checker を並列に 1 回評価する (check サブコマンド用)。個別 check
@@ -85,7 +90,7 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lifecycle.GuardPanic(ctx, r.Notifier, r.Host, r.ClockNow, func() {
+			lifecycle.GuardPanic(ctx, r.Notifier, r.Subcommand, r.Host, r.ClockNow, func() {
 				r.evaluateWithBurst(ctx, c)
 			})
 		}()
@@ -107,7 +112,7 @@ func (r *Runner) RunLoop(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lifecycle.GuardPanic(ctx, r.Notifier, r.Host, r.ClockNow, func() {
+			lifecycle.GuardPanic(ctx, r.Notifier, r.Subcommand, r.Host, r.ClockNow, func() {
 				r.checkerLoop(ctx, c)
 			})
 		}()

@@ -157,7 +157,7 @@ Slack に「`[mitsume] test-fail failed (run: exit 1)`」と、stderr 末尾の 
 container の主プロセスを `mitsume run` の子にする。子が exit すれば container も exit し、失敗時は Slack に通知が飛ぶ。
 
 ```dockerfile
-FROM debian:slim
+FROM debian:stable-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/suecharo/mitsume:v0.1.0 /mitsume /usr/local/bin/mitsume
@@ -178,11 +178,11 @@ CMD ["/app/server"]
 同一 host で cron を 2 本立てる例:
 
 ```text
-# job 完了時に ping を打つ
-0 3 * * * MITSUME_HEARTBEAT_FILE=/var/lib/mitsume/heartbeat.json /usr/local/bin/nightly-backup.sh && /usr/local/bin/mitsume ping nightly-backup
-15 * * * * MITSUME_HEARTBEAT_FILE=/var/lib/mitsume/heartbeat.json /usr/local/bin/hourly-etl.sh && /usr/local/bin/mitsume ping hourly-etl
+# job 完了時に ping を打つ (heartbeat file は `--heartbeat-file` で ping 側にだけ渡す)
+0 3 * * * /usr/local/bin/nightly-backup.sh && /usr/local/bin/mitsume ping --heartbeat-file /var/lib/mitsume/heartbeat.json nightly-backup
+15 * * * * /usr/local/bin/hourly-etl.sh && /usr/local/bin/mitsume ping --heartbeat-file /var/lib/mitsume/heartbeat.json hourly-etl
 
-# 評価側は 1 時間に 1 回
+# 評価側は 1 時間に 1 回 (env prefix は単一コマンドなので届く)
 0 * * * * MITSUME_HEARTBEAT_FILE=/var/lib/mitsume/heartbeat.json MITSUME_SLACK_WEBHOOK_URL=https://... /usr/local/bin/mitsume check --config /etc/mitsume/mitsume.json
 ```
 
@@ -387,7 +387,7 @@ docker stop jellyfin
 mitsume check --config /etc/mitsume/mitsume.json
 ```
 
-`confirm.checks` × `confirm.interval` (default 3 × 30s) の burst を通ってから「`[mitsume] jellyfin failed (container: not running)`」が届く。復旧通知は仕様として出さない (詳細は [notify.md](notify.md#発火モデル))。
+`confirm.checks` × `confirm.interval` (default 3 × 30s) の burst を通ってから「`[mitsume] jellyfin failed (container: state=exited, want running=true)`」が届く (状態文字列は engine が返す値そのまま)。復旧通知は仕様として出さない (詳細は [notify.md](notify.md#発火モデル))。
 
 ```bash
 docker start jellyfin
@@ -405,12 +405,14 @@ services:
     image: ghcr.io/suecharo/mitsume:v0.1.0
     container_name: mitsume-watch
     restart: unless-stopped
+    command: ["watch", "--config", "/etc/mitsume/mitsume.json"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./mitsume.json:/etc/mitsume/mitsume.json:ro
       - mitsume-heartbeat:/var/lib/mitsume
     environment:
       MITSUME_HOST: container-host-01
+      MITSUME_HEARTBEAT_FILE: /var/lib/mitsume/heartbeat.json
       MITSUME_SLACK_WEBHOOK_URL: ${MITSUME_SLACK_WEBHOOK_URL}
 
 volumes:
@@ -420,7 +422,7 @@ volumes:
 mitsume 焼き込み image の Dockerfile:
 
 ```dockerfile
-FROM debian:slim
+FROM debian:stable-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/suecharo/mitsume:v0.1.0 /mitsume /usr/local/bin/mitsume

@@ -279,6 +279,80 @@ func TestIntegrationCheck_DeadmanAdjacentHeartbeatFallbackWithNoPingAlerts(t *te
 	}
 }
 
+func TestIntegrationCheck_UsesMitsumeConfigEnv(t *testing.T) {
+	dir := t.TempDir()
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer target.Close()
+	webhookURL, received := captureWebhook(t)
+	cfgBody := fmt.Sprintf(`{
+  "notify": {"webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL"},
+  "checks": [
+    {"type": "http", "name": "env-cfg", "url": %q, "interval": "1h",
+     "confirm": false, "expect": {"status": 200}}
+  ]
+}`, target.URL)
+	cfg := writeConfigJSON(t, dir, cfgBody)
+	// --config を渡さず MITSUME_CONFIG のみで解決させる。cwd も config が
+	// 見えない場所にして flag / env / cwd fallback の混同を除外する。
+	cmd := exec.Command(mitsumeBin, "check")
+	cmd.Env = append(envWithout("MITSUME_"),
+		"MITSUME_CONFIG="+cfg,
+		"MITSUME_SLACK_WEBHOOK_URL="+webhookURL,
+	)
+	cmd.Dir = t.TempDir()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("mitsume check via MITSUME_CONFIG failed: %v\nstderr: %s", err, stderr.String())
+	}
+	calls := received()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 alert (config loaded via env), got %d (%v)", len(calls), calls)
+	}
+	if !strings.Contains(calls[0], "env-cfg") {
+		t.Fatalf("alert payload must include check name from env-loaded config, got %s", calls[0])
+	}
+}
+
+func TestIntegrationCheck_UsesMitsumeHeartbeatFileEnv(t *testing.T) {
+	dir := t.TempDir()
+	webhookURL, received := captureWebhook(t)
+	hb := writeHeartbeatJSON(t, dir, "custom.heartbeat.json", map[string]time.Time{
+		"env-job": time.Now().Add(-30 * time.Hour), // stale (> within=25h)
+	})
+	cfgBody := `{
+  "notify": {"webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL"},
+  "checks": [
+    {"type": "deadman", "name": "env-deadman", "job": "env-job", "interval": "1h",
+     "confirm": false, "expect": {"within": "25h"}}
+  ]
+}`
+	cfg := writeConfigJSON(t, dir, cfgBody)
+	// --heartbeat-file を渡さず MITSUME_HEARTBEAT_FILE のみで解決させる。
+	// config file の heartbeat_file 未指定・cwd fallback も見つからない状態で
+	// env だけを頼りに resolve できるかを見る。
+	cmd := exec.Command(mitsumeBin, "check", "--config", cfg)
+	cmd.Env = append(envWithout("MITSUME_"),
+		"MITSUME_HEARTBEAT_FILE="+hb,
+		"MITSUME_SLACK_WEBHOOK_URL="+webhookURL,
+	)
+	cmd.Dir = t.TempDir()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("mitsume check via MITSUME_HEARTBEAT_FILE failed: %v\nstderr: %s", err, stderr.String())
+	}
+	calls := received()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 alert (heartbeat file resolved via env), got %d", len(calls))
+	}
+	if !strings.Contains(calls[0], "env-deadman") {
+		t.Fatalf("alert payload must include check name, got %s", calls[0])
+	}
+}
+
 func TestIntegrationCheck_HttpFailureBurstThreeAlertsOnce(t *testing.T) {
 	dir := t.TempDir()
 	var attempts int32

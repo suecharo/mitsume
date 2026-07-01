@@ -111,12 +111,12 @@ func TestSendShutdown_UsesAnnouncementWithoutAttachments(t *testing.T) {
 	}
 }
 
-func TestSendPanicNotice_TextIncludesPanicValue(t *testing.T) {
+func TestSendPanicNotice_TextIncludesPanicValueAndSubcommand(t *testing.T) {
 	t.Parallel()
 	sender := &recordingSender{}
 	n := &lifecycle.Notifier{Sender: sender}
 	now := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
-	if err := lifecycle.SendPanicNotice(context.Background(), n, "h1", "kaboom", now); err != nil {
+	if err := lifecycle.SendPanicNotice(context.Background(), n, "check", "h1", "kaboom", now); err != nil {
 		t.Fatalf("SendPanicNotice: %v", err)
 	}
 	got := sender.received()
@@ -130,8 +130,46 @@ func TestSendPanicNotice_TextIncludesPanicValue(t *testing.T) {
 	if !strings.Contains(p.Text, "kaboom") || !strings.Contains(p.Text, "h1") {
 		t.Fatalf("panic text must mention host and panic value, got %q", p.Text)
 	}
+	if !strings.Contains(p.Text, "check panicked") {
+		t.Fatalf("panic text must include the invoking subcommand, got %q", p.Text)
+	}
 	if !strings.Contains(p.Text, now.Format(time.RFC3339)) {
 		t.Fatalf("panic text must include RFC3339 timestamp, got %q", p.Text)
+	}
+}
+
+func TestSendPanicNotice_SubcommandVaries(t *testing.T) {
+	t.Parallel()
+	for _, sc := range []string{"check", "watch"} {
+		sender := &recordingSender{}
+		n := &lifecycle.Notifier{Sender: sender}
+		if err := lifecycle.SendPanicNotice(context.Background(), n, sc, "h1", "x", time.Now()); err != nil {
+			t.Fatalf("SendPanicNotice(%q): %v", sc, err)
+		}
+		got := sender.received()
+		if len(got) != 1 {
+			t.Fatalf("subcommand=%q: expected 1 call, got %d", sc, len(got))
+		}
+		want := sc + " panicked"
+		if !strings.Contains(got[0].Text, want) {
+			t.Fatalf("subcommand=%q: text must contain %q, got %q", sc, want, got[0].Text)
+		}
+	}
+}
+
+func TestSendPanicNotice_EmptySubcommandFallsBackToUnknown(t *testing.T) {
+	t.Parallel()
+	sender := &recordingSender{}
+	n := &lifecycle.Notifier{Sender: sender}
+	if err := lifecycle.SendPanicNotice(context.Background(), n, "", "h1", "x", time.Now()); err != nil {
+		t.Fatalf("SendPanicNotice: %v", err)
+	}
+	got := sender.received()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(got))
+	}
+	if !strings.Contains(got[0].Text, "unknown panicked") {
+		t.Fatalf("empty subcommand must fall back to 'unknown', got %q", got[0].Text)
 	}
 }
 
@@ -140,7 +178,7 @@ func TestGuardPanic_NoPanicSkipsNotify(t *testing.T) {
 	sender := &recordingSender{}
 	n := &lifecycle.Notifier{Sender: sender}
 	called := false
-	lifecycle.GuardPanic(context.Background(), n, "h1", nil, func() { called = true })
+	lifecycle.GuardPanic(context.Background(), n, "watch", "h1", nil, func() { called = true })
 	if !called {
 		t.Fatalf("fn should have been called")
 	}
@@ -157,7 +195,7 @@ func TestGuardPanic_PanicNotifiesAndRePanics(t *testing.T) {
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		lifecycle.GuardPanic(context.Background(), n, "h1", fixedNow(now), func() {
+		lifecycle.GuardPanic(context.Background(), n, "check", "h1", fixedNow(now), func() {
 			panic("boom")
 		})
 	}()
@@ -171,6 +209,9 @@ func TestGuardPanic_PanicNotifiesAndRePanics(t *testing.T) {
 	if !strings.Contains(got[0].Text, "boom") {
 		t.Fatalf("notify text must contain panic value, got %q", got[0].Text)
 	}
+	if !strings.Contains(got[0].Text, "check panicked") {
+		t.Fatalf("notify text must reflect the invoking subcommand, got %q", got[0].Text)
+	}
 	if !strings.Contains(got[0].Text, now.Format(time.RFC3339)) {
 		t.Fatalf("notify text must contain clockNow-provided timestamp, got %q", got[0].Text)
 	}
@@ -183,7 +224,7 @@ func TestGuardPanic_NotifyFailureStillRePanics(t *testing.T) {
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		lifecycle.GuardPanic(context.Background(), n, "h1", nil, func() { panic("x") })
+		lifecycle.GuardPanic(context.Background(), n, "watch", "h1", nil, func() { panic("x") })
 	}()
 	if caught != "x" {
 		t.Fatalf("panic value should survive notify failure, got %v", caught)
@@ -200,7 +241,7 @@ func TestGuardPanic_DryRunNotifierWritesStderrAndRePanics(t *testing.T) {
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		lifecycle.GuardPanic(context.Background(), n, "h1", nil, func() { panic("dry") })
+		lifecycle.GuardPanic(context.Background(), n, "watch", "h1", nil, func() { panic("dry") })
 	}()
 	if caught != "dry" {
 		t.Fatalf("re-panic value mismatch: got %v", caught)
@@ -218,7 +259,7 @@ func TestGuardPanic_NilClockUsesRealTime(t *testing.T) {
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		lifecycle.GuardPanic(context.Background(), n, "h1", nil, func() { panic("t") })
+		lifecycle.GuardPanic(context.Background(), n, "watch", "h1", nil, func() { panic("t") })
 	}()
 	after := time.Now().Add(time.Second)
 	if caught != "t" {

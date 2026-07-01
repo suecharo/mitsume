@@ -91,7 +91,6 @@ my-batch || mitsume notify "my-batch failed: $(date)"
 |---|---|
 | `MITSUME_SLACK_WEBHOOK_URL` | 設定 JSON / CLI flag 未指定時の既定 webhook URL env |
 | `MITSUME_CONFIG` | 設定 JSON のパス |
-| `MITSUME_HOST` | host 識別子 (通知文に載る) |
 | (`--slack-webhook-url-env` で指定した任意の名前) | webhook URL を保持する env |
 
 ### 動作
@@ -165,7 +164,7 @@ mitsume check --config /etc/mitsume/mitsume.json
 | code | 意味 |
 |---|---|
 | `0` | 設定を読んで評価を完了した (個別の check が failure でも 0) |
-| `1` | 設定 JSON 未検出 / parse 失敗 / validation 失敗、heartbeat file read 失敗、通知の retry 全滅など、mitsume 側の異常 |
+| `1` | 設定 JSON 未検出 / parse 失敗 / validation 失敗、heartbeat file read 失敗など、mitsume 側の異常。通知の retry 全滅は含まない (詳細は [notify.md § 通知失敗時の retry](notify.md#通知失敗時の-retry)) |
 
 個別 check の failure は exit code に反映しない。cron 側の on-failure ハンドラを不用意に発火させないため、失敗は通知で伝える。
 

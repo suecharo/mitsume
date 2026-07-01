@@ -47,11 +47,17 @@ type Expect struct {
 type Options struct {
 	Defaults DefaultsFallback
 	// SocketPath は既に解決済みの unix socket path。空なら Parse 内で
-	// default resolver ($DOCKER_HOST / XDG_RUNTIME_DIR / hardcoded paths) を回す。
+	// CandidatePathsFunc (nil なら CandidatePaths) を回して socket を探索する。
 	// テスト用注入経路 (net.Listen("unix", ...) で立てた path を渡す)。
 	SocketPath string
 	// HTTPClient は test 用に上書き。nil なら SocketPath ベースで作る。
 	HTTPClient *http.Client
+	// CandidatePathsFunc は SocketPath が空のときに Parse が使う socket 候補
+	// 列挙関数。nil なら CandidatePaths (env と hardcoded default) を使う。
+	// テスト側は「存在しない tmp path を返す関数」「fake socket path を返す
+	// 関数」を渡して, host に docker.sock がある / 無い場合の両方を deterministic
+	// に検証する DI 経路。
+	CandidatePathsFunc func(engine string) []string
 }
 
 // DefaultsFallback は defaults セクションから container checker が継承する値。
@@ -107,7 +113,7 @@ func Parse(raw json.RawMessage, opts Options) (*Checker, error) {
 	}
 	socketPath := opts.SocketPath
 	if socketPath == "" {
-		socketPath, err = ResolveSocket(cfg.Engine)
+		socketPath, err = resolveSocketWith(cfg.Engine, opts.CandidatePathsFunc)
 		if err != nil {
 			return nil, err
 		}
@@ -143,26 +149,19 @@ func newSocketClient(path string) *http.Client {
 	}
 }
 
-// dockerPathsFn / podmanPathsFn は fallback path 集を返す package-level
-// function variable。test 側は net.Listen("unix", ...) の fake socket や
-// t.TempDir() 下の nonexistent path を返す関数で差し替え、host の docker.sock
-// 有無に関わらず fail-fast / resolve OK の両パスを deterministic に検証する。
-var (
-	dockerPathsFn = defaultDockerPaths
-	podmanPathsFn = defaultPodmanPaths
-)
-
 // CandidatePaths は engine ("docker" / "podman" / "") に対する socket 探索順を
 // 返す。docs/checkers.md § container checker § 固有の挙動 の順序に従う。
-// engine=="" のときは docker 候補 → podman 候補 の順で全部返す。
+// engine=="" のときは docker 候補 → podman 候補 の順で全部返す。テスト側で
+// 挙動を差し替えたい場合は Options.CandidatePathsFunc を使う (package-level の
+// mutable state ではなく Parse 呼び出しの引数に固定して race を避ける)。
 func CandidatePaths(engine string) []string {
 	switch engine {
 	case "docker":
-		return dockerPathsFn()
+		return defaultDockerPaths()
 	case "podman":
-		return podmanPathsFn()
+		return defaultPodmanPaths()
 	default:
-		return append(dockerPathsFn(), podmanPathsFn()...)
+		return append(defaultDockerPaths(), defaultPodmanPaths()...)
 	}
 }
 
@@ -199,7 +198,16 @@ func stripUnixScheme(s string) (string, bool) {
 // ResolveSocket は engine に応じた socket path を返す。stat で存在確認する。
 // 見つからなければ error (fail-fast の対象、docs/architecture.md § container)。
 func ResolveSocket(engine string) (string, error) {
-	paths := CandidatePaths(engine)
+	return resolveSocketWith(engine, nil)
+}
+
+// resolveSocketWith は cpFunc で socket 候補を列挙し、stat で最初に存在する
+// path を返す。cpFunc が nil なら CandidatePaths を使う。
+func resolveSocketWith(engine string, cpFunc func(engine string) []string) (string, error) {
+	if cpFunc == nil {
+		cpFunc = CandidatePaths
+	}
+	paths := cpFunc(engine)
 	var tried []string
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {

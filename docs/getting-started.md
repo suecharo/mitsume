@@ -154,14 +154,14 @@ stderr に「`[mitsume] nightly-backup failed (deadman: ...)`」の payload が�
 crontab の 1 行例 (job 側と評価側を同じホストに置く場合):
 
 ```text
-# job 完了時に ping
-0 3 * * * MITSUME_HEARTBEAT_FILE=/var/lib/mitsume/heartbeat.json /usr/local/bin/nightly-backup.sh && /usr/local/bin/mitsume ping nightly-backup
+# job 完了時に ping (heartbeat file は ping 側の `--heartbeat-file` で明示する)
+0 3 * * * /usr/local/bin/nightly-backup.sh && /usr/local/bin/mitsume ping --heartbeat-file /var/lib/mitsume/heartbeat.json nightly-backup
 
-# 評価側は 1 時間ごと
+# 評価側は 1 時間ごと (env prefix は単一コマンドなので届く)
 0 * * * * MITSUME_HEARTBEAT_FILE=/var/lib/mitsume/heartbeat.json MITSUME_SLACK_WEBHOOK_URL=https://... /usr/local/bin/mitsume check --config /etc/mitsume/mitsume.json
 ```
 
-`ping` と `check` が同じ heartbeat file を指す必要がある (`MITSUME_HEARTBEAT_FILE` で明示するか、設定 JSON の `heartbeat_file` フィールドで指定する)。
+`ping` と `check` が同じ heartbeat file を指す必要がある (`--heartbeat-file` flag / `MITSUME_HEARTBEAT_FILE` env / 設定 JSON の `heartbeat_file` フィールドのいずれか)。crontab で `A=B cmd1 && cmd2` の形にすると POSIX shell 仕様上 `A=B` は `cmd1` の env にしか届かないので、`ping` 側は `--heartbeat-file` flag で明示するのが安全。
 
 「`ping` する前に job そのものが失敗したとき」の失敗通知は `mitsume run` に寄せる。`mitsume run -- <cmd> && mitsume ping <job>` の形なら、job 失敗時は `run` の通知が飛び、成功時のみ `ping` が打たれる。
 

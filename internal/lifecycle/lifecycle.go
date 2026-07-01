@@ -67,11 +67,15 @@ func SendShutdown(ctx context.Context, n *Notifier, host, signalName string, now
 
 // SendPanicNotice は panic を Slack に通知する payload を作って送る。
 // docs/architecture.md § 自身の死活 の「recover → notify → re-panic」の
-// notify 部分に対応する。best-effort なので、返り値の error は呼び出し側が
-// 適宜 stderr にログするだけで re-panic を止めない。
-func SendPanicNotice(ctx context.Context, n *Notifier, host string, panicVal any, now time.Time) error {
-	text := fmt.Sprintf("[mitsume] watch panicked on host=%s (panic=%v, time=%s)",
-		host, panicVal, now.Format(time.RFC3339))
+// notify 部分に対応する。subcommand は通知文の「どのサブコマンドで起きたか」
+// を識別する短い名前 (例: "check" / "watch")。best-effort なので、返り値の
+// error は呼び出し側が適宜 stderr にログするだけで re-panic を止めない。
+func SendPanicNotice(ctx context.Context, n *Notifier, subcommand, host string, panicVal any, now time.Time) error {
+	if subcommand == "" {
+		subcommand = "unknown"
+	}
+	text := fmt.Sprintf("[mitsume] %s panicked on host=%s (panic=%v, time=%s)",
+		subcommand, host, panicVal, now.Format(time.RFC3339))
 	payload := notify.BuildAnnouncement(text, n.Options)
 
 	return n.Send(ctx, payload)
@@ -81,8 +85,8 @@ func SendPanicNotice(ctx context.Context, n *Notifier, host string, panicVal any
 // 後、同じ panic 値で re-panic する。呼び出し側は defer で recover して
 // os.Exit(...) するか、そのまま Go runtime に握らせて stack trace 出力
 // + exit code 2 で die させる (docs/cli.md § watch § exit code)。clockNow が
-// nil なら time.Now が使われる。
-func GuardPanic(ctx context.Context, n *Notifier, host string, clockNow func() time.Time, fn func()) {
+// nil なら time.Now が使われる。subcommand は SendPanicNotice にそのまま渡す。
+func GuardPanic(ctx context.Context, n *Notifier, subcommand, host string, clockNow func() time.Time, fn func()) {
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -92,7 +96,7 @@ func GuardPanic(ctx context.Context, n *Notifier, host string, clockNow func() t
 		if clockNow != nil {
 			now = clockNow()
 		}
-		if err := SendPanicNotice(ctx, n, host, r, now); err != nil {
+		if err := SendPanicNotice(ctx, n, subcommand, host, r, now); err != nil {
 			fmt.Fprintf(os.Stderr, "mitsume: panic notify failed: %v\n", err)
 		}
 		panic(r)

@@ -92,19 +92,44 @@ func TestParse_UnknownField(t *testing.T) {
 }
 
 func TestParse_SocketNotFoundIsFailfast(t *testing.T) {
-	// non-parallel: dockerPathsFn / podmanPathsFn は package-level state
+	t.Parallel()
 	dir := t.TempDir()
-	origDocker := dockerPathsFn
-	origPodman := podmanPathsFn
-	dockerPathsFn = func() []string { return []string{filepath.Join(dir, "no-docker.sock")} }
-	podmanPathsFn = func() []string { return []string{filepath.Join(dir, "no-podman.sock")} }
-	t.Cleanup(func() {
-		dockerPathsFn = origDocker
-		podmanPathsFn = origPodman
-	})
+	cp := func(engine string) []string {
+		switch engine {
+		case "docker":
+			return []string{filepath.Join(dir, "no-docker.sock")}
+		case "podman":
+			return []string{filepath.Join(dir, "no-podman.sock")}
+		default:
+			return []string{filepath.Join(dir, "no-docker.sock"), filepath.Join(dir, "no-podman.sock")}
+		}
+	}
 	raw := json.RawMessage(`{"type": "container", "container": "x", "interval": "1h", "expect": {"running": true}}`)
-	if _, err := Parse(raw, Options{}); err == nil {
+	if _, err := Parse(raw, Options{CandidatePathsFunc: cp}); err == nil {
 		t.Fatalf("expected fail-fast for missing socket")
+	}
+}
+
+func TestParse_SocketFoundViaCandidatePathsFunc(t *testing.T) {
+	t.Parallel()
+	sock := fakeUnixServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"State": {"Status": "running"}}`))
+	}))
+	cp := func(engine string) []string {
+		if engine == "docker" {
+			return []string{sock}
+		}
+
+		return nil
+	}
+	raw := json.RawMessage(`{"type": "container", "container": "x", "engine": "docker", "interval": "1h", "expect": {"running": true}}`)
+	c, err := Parse(raw, Options{CandidatePathsFunc: cp})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.SocketPath() != sock {
+		t.Fatalf("SocketPath=%q want %q", c.SocketPath(), sock)
 	}
 }
 
@@ -173,13 +198,11 @@ func TestResolveSocket_FoundInDockerHost(t *testing.T) {
 	}
 }
 
-func TestResolveSocket_NoneFound(t *testing.T) {
-	// non-parallel: dockerPathsFn / podmanPathsFn は package-level state
+func TestResolveSocketWith_NoneFound(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
-	origDocker := dockerPathsFn
-	dockerPathsFn = func() []string { return []string{filepath.Join(dir, "no.sock")} }
-	t.Cleanup(func() { dockerPathsFn = origDocker })
-	if _, err := ResolveSocket("docker"); err == nil {
+	cp := func(_ string) []string { return []string{filepath.Join(dir, "no.sock")} }
+	if _, err := resolveSocketWith("docker", cp); err == nil {
 		t.Fatalf("expected error")
 	}
 }

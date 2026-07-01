@@ -99,7 +99,7 @@ container の中で運用する形は [docs/recipes.md § mitsume 自身を cont
 
 リファレンス
 
-- [docs/cli.md](docs/cli.md) — 5 サブコマンドの引数・env・exit code
+- [docs/cli.md](docs/cli.md) — 6 サブコマンドの引数・env・exit code
 - [docs/configuration.md](docs/configuration.md) — 設定 JSON schema と探索順
 - [docs/checkers.md](docs/checkers.md) — 5 種 checker の判定ロジック
 - [docs/notify.md](docs/notify.md) — Slack payload の形式と発火モデル

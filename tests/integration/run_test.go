@@ -106,17 +106,33 @@ func TestIntegrationRun_QuietOnSuccessSuppressesNotify(t *testing.T) {
 }
 
 func TestIntegrationRun_MissingCommandExits1(t *testing.T) {
-	// `--` の後に <cmd> 無し → exit 1
-	cmd := exec.Command(mitsumeBin, "run")
-	cmd.Env = envWithout("MITSUME_")
-	cmd.Dir = t.TempDir()
-	err := cmd.Run()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("expected *exec.ExitError, got %T: %v", err, err)
+	// docs/cli.md § run § 引数: `--` の後の <cmd> は必須。以下 3 パターンとも
+	// exit 1 で failing する: (1) `run` 単独、(2) `run --` (separator のみ)、
+	// (3) `run --name x` (flag のみで separator も cmd も無い)。
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"NoArgsAtAll", []string{"run"}},
+		{"OnlySeparator", []string{"run", "--"}},
+		{"FlagWithoutSeparator", []string{"run", "--name", "x"}},
 	}
-	if code := exitErr.ExitCode(); code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(mitsumeBin, tc.args...)
+			cmd.Env = envWithout("MITSUME_")
+			cmd.Dir = t.TempDir()
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("expected *exec.ExitError, got %T: %v", err, err)
+			}
+			if code := exitErr.ExitCode(); code != 1 {
+				t.Fatalf("exit code = %d, want 1 (stderr: %s)", code, stderr.String())
+			}
+		})
 	}
 }
 

@@ -211,5 +211,6 @@ func setupRunner(opts runnerSetupOpts) (*runner.Runner, int) {
 		HeartbeatFile: hbFile,
 		Notifier:      notifier,
 		Host:          hostName,
+		Subcommand:    opts.Subcommand,
 	}, 0
 }
