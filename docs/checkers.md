@@ -178,6 +178,18 @@ HTTP endpoint を呼び出し、status / body / latency を判定する。
 
 `body_jsonpath` は `[{ "path": "$....", "<op>": <value> }, ...]` の配列で、各要素を AND で評価する。演算子は 4 つのみ。
 
+`path` はサポートする書式を絞る。dot notation の property access と array index の組み合わせのみ受ける。
+
+| 書式 | 例 | 意味 |
+|---|---|---|
+| `$` | `$` | root |
+| `$.<field>` | `$.status` | root 直下の property |
+| `$.<field>.<sub>` | `$.data.value` | ネストされた property |
+| `$.<field>[N]` | `$.items[0]` | 配列 index (0 origin) |
+| `$.<field>[N].<sub>` | `$.items[0].id` | 配列要素の property |
+
+bracket notation (`['key']`)、再帰探索 (`..`)、wildcard (`*`)、filter (`?(...)`)、slice (`[a:b]`) は非対応。field 名の文字集合は英数字と `_` `-` のみ。
+
 | 演算子 | 意味 | 適用型 |
 |---|---|---|
 | `equals` | 完全一致 | string / number / bool |
@@ -204,6 +216,7 @@ HTTP endpoint を呼び出し、status / body / latency を判定する。
 - `status` を書かなければ status の判定は行わない (2xx / 3xx を暗黙成功にしない)
 - `body_jsonpath` は response body が JSON parse 可能であることを前提にする。JSON parse 失敗は failure と判定する
 - `body_contains` は raw byte 上での部分文字列マッチ。`Content-Type` に関係なくそのまま照合する
+- `timeout` は checker の `timeout` > `defaults.timeout` > 暗黙 default `30s` の順で解決する。すべて未指定なら `30s` (net/http の default である無制限にしない: watch を無期限ハングさせるリスクを構造的に排除する)
 
 ## `deadman` checker
 
@@ -427,7 +440,8 @@ docker / podman container の稼働状態を確認する。Docker Engine API の
 ### 固有の挙動
 
 - `command` は配列で直接 exec する。shell interpolation / パイプ / redirect が必要なら `["/bin/sh", "-c", "<script>"]` を明示的に指定する
-- `timeout` 超過時は SIGTERM を送信、grace period 経過後に SIGKILL。exit code は `124` を内部的に扱い、`expect.exit_code` と一致しなければ failure
+- `timeout` 超過時は `SIGTERM` を送信、grace period (5s 固定) 経過後に `SIGKILL`。exit code は `124` を内部的に扱い、`expect.exit_code` と一致しなければ failure
+- `timeout` は checker の `timeout` > `defaults.timeout` > 暗黙 default `30s` の順で解決する。grace period は config field を持たず、`run` サブコマンド (`--grace-period` default `5s`) と同じ値に揃える
 - 失敗通知には exit code と stderr 末尾 (20 行 or 2KB の小さい方) を含める。payload の詳細は [notify.md](notify.md) を参照
 - `expect.exit_code` を省略した場合の default は `0` (成功終了以外は failure)
 - 環境変数は親プロセスの env + `env` フィールドの union を渡す (`env` が優先)

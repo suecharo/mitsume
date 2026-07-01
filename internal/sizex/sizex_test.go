@@ -105,6 +105,73 @@ func TestParse_OverflowIsError(t *testing.T) {
 	}
 }
 
+func TestFormat_ExactMultiples(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   int64
+		want string
+	}{
+		{0, "0B"},
+		{1, "1B"},
+		{512, "512B"},
+		{1024, "1KB"},
+		{512 * 1024, "512KB"},
+		{100 * 1024 * 1024, "100MB"},
+		{10 * (1 << 30), "10GB"},
+		{1 << 40, "1TB"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
+			if got := sizex.Format(tt.in); got != tt.want {
+				t.Fatalf("Format(%d) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormat_NonMultipleFallsToBytes(t *testing.T) {
+	t.Parallel()
+	cases := map[int64]string{
+		1025:              "1025B",
+		1024*1024 - 1:     "1048575B",
+		1024*1024 + 1:     "1048577B",
+		512*1024*1024 + 1: "536870913B",
+	}
+	for in, want := range cases {
+		if got := sizex.Format(in); got != want {
+			t.Errorf("Format(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFormat_Negative(t *testing.T) {
+	t.Parallel()
+	if got := sizex.Format(-100); got != "-100B" {
+		t.Errorf("Format(-100) = %q", got)
+	}
+	if got := sizex.Format(-1024); got != "-1KB" {
+		t.Errorf("Format(-1024) = %q", got)
+	}
+}
+
+func TestFormat_ParseRoundTrip(t *testing.T) {
+	t.Parallel()
+	tests := []int64{0, 1, 100, 1024, 100 * 1024 * 1024, 10 * (1 << 30), 1 << 40}
+	for _, n := range tests {
+		s := sizex.Format(n)
+		got, err := sizex.Parse(s)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", s, err)
+
+			continue
+		}
+		if got != n {
+			t.Errorf("round trip: %d -> %q -> %d", n, s, got)
+		}
+	}
+}
+
 func TestParse_AcceptsExactUpperBoundaries(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -23,6 +23,29 @@ var units = []unit{
 	{"B", 1},
 }
 
+// Format は byte 数を docs/configuration.md § size 表記 の 1024 ベース単位で
+// human-readable な文字列にする (payload の observed / expected に載せる用途、
+// docs/notify.md § payload 形式 の "size=80MB" 形式)。負値は "-<abs>" 形式で
+// 出す。単位が丸められない (余りが出る) 場合は下位単位で表現する。
+func Format(n int64) string {
+	if n == 0 {
+		return "0B"
+	}
+	if n < 0 {
+		return "-" + Format(-n)
+	}
+	for _, u := range units {
+		if u.mul == 1 {
+			return fmt.Sprintf("%dB", n)
+		}
+		if n%u.mul == 0 {
+			return fmt.Sprintf("%d%s", n/u.mul, u.suffix)
+		}
+	}
+
+	return fmt.Sprintf("%dB", n)
+}
+
 // Parse は 1024 ベースの size 表記 (B / KB / MB / GB / TB) と整数 byte 直書きを
 // 受ける。負値、小数、KiB / MiB、空文字、単位のみ、末尾の余分な文字、大文字小文字
 // 違いはすべて error。
