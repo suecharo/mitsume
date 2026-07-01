@@ -1,0 +1,31 @@
+# Claude Code の作業メモ・進め方の置き場 (git 管理対象外)
+.claude/
+
+# Go ビルド成果物
+/mitsume
+/mitsume-*
+/dist/
+/build/
+*.exe
+*.test
+*.out
+
+# Go module 関係
+vendor/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 開発中に作りがちな一時 state.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
