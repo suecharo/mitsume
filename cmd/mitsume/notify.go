@@ -13,8 +13,6 @@ import (
 	"github.com/suecharo/mitsume/internal/notify"
 )
 
-const defaultWebhookEnvKey = "MITSUME_SLACK_WEBHOOK_URL"
-
 func runNotify(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("notify", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -99,15 +97,4 @@ func runNotify(ctx context.Context, args []string) int {
 	}
 
 	return 0
-}
-
-func resolveWebhookEnvName(cliEnv string, cfg *config.Config) string {
-	if cliEnv != "" {
-		return cliEnv
-	}
-	if cfg != nil && cfg.Notify.WebhookURLEnv != "" {
-		return cfg.Notify.WebhookURLEnv
-	}
-
-	return defaultWebhookEnvKey
 }

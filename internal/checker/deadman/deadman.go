@@ -40,6 +40,13 @@ type Options struct {
 	// ClockNow は現在時刻 provider。nil なら time.Now。テストの決定性のため
 	// 注入経路を残す (tests/README.md § mock 境界: 時刻)。
 	ClockNow func() time.Time
+	// SnapshotProvider は heartbeat file snapshot の取得関数。docs/heartbeat.md
+	// § 読み込みモデル の「サイクル起点で 1 度だけ read、同一サイクル内の複数
+	// deadman 評価は同じ snapshot を共有」を成立させるための注入経路。呼び出し側
+	// (runner) が per-cycle で snapshot を共有 closure に閉じ込め、burst 中も
+	// 同じ closure を返す。nil の場合は Evaluate が都度 HeartbeatFile を read する
+	// (単発の check や runner を経由しない test 経路)。
+	SnapshotProvider func() (*heartbeat.File, error)
 }
 
 // DefaultsFallback は defaults セクションから deadman が継承する値。
@@ -49,13 +56,14 @@ type DefaultsFallback struct {
 
 // Checker は deadman checker の実装。
 type Checker struct {
-	name          string
-	interval      time.Duration
-	confirmCfg    confirm.Config
-	within        time.Duration
-	job           string
-	heartbeatFile string
-	clockNow      func() time.Time
+	name             string
+	interval         time.Duration
+	confirmCfg       confirm.Config
+	within           time.Duration
+	job              string
+	heartbeatFile    string
+	clockNow         func() time.Time
+	snapshotProvider func() (*heartbeat.File, error)
 }
 
 // Parse は raw JSON + Options を検証して Checker を作る。
@@ -106,14 +114,24 @@ func Parse(raw json.RawMessage, opts Options) (*Checker, error) {
 	}
 
 	return &Checker{
-		name:          name,
-		interval:      interval,
-		confirmCfg:    confirmCfg,
-		within:        within,
-		job:           cfg.Job,
-		heartbeatFile: opts.HeartbeatFile,
-		clockNow:      clockNow,
+		name:             name,
+		interval:         interval,
+		confirmCfg:       confirmCfg,
+		within:           within,
+		job:              cfg.Job,
+		heartbeatFile:    opts.HeartbeatFile,
+		clockNow:         clockNow,
+		snapshotProvider: opts.SnapshotProvider,
 	}, nil
+}
+
+// SetSnapshotProvider は heartbeat snapshot の取得関数を差し替える。runner が
+// per-cycle で snapshot を差し込むために使う。fn が nil なら Evaluate は再度
+// HeartbeatFile を直接 read する経路に戻る。並行 Evaluate と競合しないよう、
+// 呼び出し側が Evaluate 呼び出し中に SetSnapshotProvider を叩かないこと (runner
+// はサイクル境界でのみ差し替える)。
+func (c *Checker) SetSnapshotProvider(fn func() (*heartbeat.File, error)) {
+	c.snapshotProvider = fn
 }
 
 // Type は "deadman" を返す。
@@ -135,7 +153,9 @@ func (c *Checker) Job() string { return c.job }
 func (c *Checker) Within() time.Duration { return c.within }
 
 // Evaluate は heartbeat file を read only で参照し、job の last_ping_at と
-// 現在時刻の差を expect.within と比較する。
+// 現在時刻の差を expect.within と比較する。snapshotProvider が非 nil なら
+// それを優先し、docs/heartbeat.md § 読み込みモデル の「サイクル起点で 1 度
+// だけ read」を成立させる。nil の場合は都度 heartbeat.Load(path) する。
 func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 	expected := fmt.Sprintf("within=%s", c.within)
 	if err := ctx.Err(); err != nil {
@@ -145,7 +165,15 @@ func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 			expected,
 		)
 	}
-	file, err := heartbeat.Load(c.heartbeatFile)
+	var (
+		file *heartbeat.File
+		err  error
+	)
+	if c.snapshotProvider != nil {
+		file, err = c.snapshotProvider()
+	} else {
+		file, err = heartbeat.Load(c.heartbeatFile)
+	}
 	if err != nil {
 		return checker.Failure(
 			fmt.Sprintf("heartbeat file read failed: %v", err),

@@ -125,6 +125,7 @@ payload に載せない項目:
 通知は「失敗のたびに 1 通」を守る。次の 5 点は設定で変えられない。
 
 - failure 確定のたびに 1 通送る。前回状態を保持しないので debounce しない。次サイクルで再度 failure なら再度送る。
+- `confirm` burst を通り抜けて failure が確定した場合、payload の `observed` / `expected` / `error` および `text` の "<type>: <error>" 括弧内には burst 最終確認 (最も新しい観測) の Result を載せる。burst 途中で観測値が変わった場合でも、Slack に届く時点で最新観測を反映する。
 - ok に戻ったときの recovery 通知は出さない。復旧は「次の失敗通知が来ない」ことで判る。
 - `always` / `backoff` のような再送タイマーは持たない。「失敗のたび通知」で `always` 相当が自然に成立する。
 - 過剰通知の抑制は `interval` の値で行う (1h 以上推奨、最短 1h に 1 通のペースに収まる)。

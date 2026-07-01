@@ -383,6 +383,7 @@ docker / podman container の稼働状態を確認する。Docker Engine API の
   - `engine: "podman"` → `$XDG_RUNTIME_DIR/podman/podman.sock` → `/run/podman/podman.sock`
   - `engine` 省略 → docker socket → podman socket の順で自動探索
 - 起動時 validation で socket が見つからなければ fail-fast する。validation の詳細は [configuration.md](configuration.md) を参照
+- checker 側では `timeout` config field を持たない (`defaults.timeout` も継承しない、[configuration.md](configuration.md#defaults) 参照)。`mitsume check` / `mitsume watch` は 1 evaluation あたり 30s の hard cap を内部で被せて `docker.sock` の停止などによる無期限ハングを防ぐ (HTTP / cmd checker の暗黙 default と揃える)。この値はユーザが変更できない
 - `HEALTHCHECK` 連動 (`.State.Health.Status`) はサポートしない。`expect.healthy` フィールドも持たない
 - リモート host の container 監視はサポートしない。`mitsume watch` は container host 上で動かす前提
 

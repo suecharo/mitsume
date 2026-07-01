@@ -149,7 +149,7 @@ field 定義、default 値、時間軸例は [configuration.md](configuration.md
 死活監視ツールが自分自身の死を確実に通知するのは構造的に不可能。best-effort としてこれだけ入れる。
 
 - SIGTERM / SIGINT 受信時に defer で 1 発 `notify` を投げる
-- panic 時は recover してから `notify` を投げ、re-panic する
+- panic 時は recover してから `notify` を投げ、re-panic する (Go runtime に握らせて stack trace を stderr に出し、exit code は `2` で終わる)
 
 これら以外の生存保証は OS 側の仕組みに委ねる。systemd unit なら `Restart=on-failure`、Docker container なら restart policy を使う。mitsume 側で自身を能動 ping する機能や、外部 dead-man's switch (Healthchecks.io ping 等) との連携は持たない。
 

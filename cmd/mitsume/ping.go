@@ -5,17 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/suecharo/mitsume/internal/config"
 	"github.com/suecharo/mitsume/internal/heartbeat"
-)
-
-const (
-	jobEnvKey       = "MITSUME_JOB"
-	heartbeatEnvKey = "MITSUME_HEARTBEAT_FILE"
 )
 
 func runPing(_ context.Context, args []string) int {
@@ -132,25 +125,4 @@ func pickJob(positional []string, cfg *config.Config) (string, error) {
 	}
 
 	return "", fmt.Errorf("<job> must be given as arg, $%s, or a single deadman entry in config", jobEnvKey)
-}
-
-func resolveHeartbeatPath(cliPath string, cfg *config.Config) (string, error) {
-	if cliPath != "" {
-		return cliPath, nil
-	}
-	if v := os.Getenv(heartbeatEnvKey); v != "" {
-		return v, nil
-	}
-	if cfg != nil {
-		if cfg.HeartbeatFile != "" {
-			return cfg.HeartbeatFile, nil
-		}
-		if cfg.SourcePath != "" {
-			stem, _ := strings.CutSuffix(filepath.Base(cfg.SourcePath), ".json")
-
-			return filepath.Join(filepath.Dir(cfg.SourcePath), stem+".heartbeat.json"), nil
-		}
-	}
-
-	return "", fmt.Errorf("cannot resolve heartbeat file path (use --heartbeat-file, $%s, or a config with heartbeat_file / adjacent .heartbeat.json)", heartbeatEnvKey)
 }

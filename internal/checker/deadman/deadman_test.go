@@ -3,6 +3,7 @@ package deadman
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -341,5 +342,83 @@ func TestEvaluate_NilClockUsesRealTime(t *testing.T) {
 	r := c.Evaluate(context.Background())
 	if !r.OK {
 		t.Fatalf("expected OK, got %+v", r)
+	}
+}
+
+func TestEvaluate_SnapshotProviderOverridesFileLoad(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	// File 上には old timestamp があるが、provider は fresh timestamp を返す。
+	// provider 優先なら success、file load ならば failure になる境界。
+	old := now.Add(-30 * time.Hour)
+	fresh := now.Add(-5 * time.Minute)
+	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": old})
+	snapshot := &heartbeat.File{Jobs: map[string]heartbeat.Entry{"backup": {LastPingAt: fresh}}}
+	raw := json.RawMessage(`{"type": "deadman", "job": "backup", "interval": "1h", "expect": {"within": "25h"}}`)
+	c, err := Parse(raw, Options{
+		HeartbeatFile: hbFile,
+		ClockNow:      fixedClock(now),
+		SnapshotProvider: func() (*heartbeat.File, error) {
+			return snapshot, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	r := c.Evaluate(context.Background())
+	if !r.OK {
+		t.Fatalf("expected OK from provider snapshot, got %+v", r)
+	}
+}
+
+func TestEvaluate_SnapshotProviderErrorSurfacesFailure(t *testing.T) {
+	t.Parallel()
+	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": time.Now()})
+	raw := json.RawMessage(`{"type": "deadman", "job": "backup", "interval": "1h", "expect": {"within": "25h"}}`)
+	c, err := Parse(raw, Options{
+		HeartbeatFile: hbFile,
+		SnapshotProvider: func() (*heartbeat.File, error) {
+			return nil, errors.New("permission denied")
+		},
+	})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	r := c.Evaluate(context.Background())
+	if r.OK {
+		t.Fatalf("expected failure when snapshot provider errors")
+	}
+	if !strings.Contains(r.Error, "permission denied") {
+		t.Errorf("Error should surface underlying provider error, got %q", r.Error)
+	}
+}
+
+func TestSetSnapshotProvider_RuntimeSwap(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	freshSnapshot := &heartbeat.File{Jobs: map[string]heartbeat.Entry{
+		"backup": {LastPingAt: now.Add(-5 * time.Minute)},
+	}}
+	staleSnapshot := &heartbeat.File{Jobs: map[string]heartbeat.Entry{
+		"backup": {LastPingAt: now.Add(-30 * time.Hour)},
+	}}
+	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": now.Add(-5 * time.Minute)})
+	raw := json.RawMessage(`{"type": "deadman", "job": "backup", "interval": "1h", "expect": {"within": "25h"}}`)
+	c, err := Parse(raw, Options{HeartbeatFile: hbFile, ClockNow: fixedClock(now)})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	c.SetSnapshotProvider(func() (*heartbeat.File, error) { return freshSnapshot, nil })
+	if r := c.Evaluate(context.Background()); !r.OK {
+		t.Fatalf("expected OK from fresh snapshot, got %+v", r)
+	}
+	c.SetSnapshotProvider(func() (*heartbeat.File, error) { return staleSnapshot, nil })
+	if r := c.Evaluate(context.Background()); r.OK {
+		t.Fatalf("expected failure from stale snapshot, got OK")
+	}
+	c.SetSnapshotProvider(nil)
+	// nil に戻したら再度 file load fallback。file には fresh ping があるので success。
+	if r := c.Evaluate(context.Background()); !r.OK {
+		t.Fatalf("expected OK after clearing snapshot provider (fallback to file), got %+v", r)
 	}
 }

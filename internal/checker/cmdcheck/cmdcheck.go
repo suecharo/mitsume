@@ -18,6 +18,7 @@ import (
 	"github.com/suecharo/mitsume/internal/checker"
 	"github.com/suecharo/mitsume/internal/config"
 	"github.com/suecharo/mitsume/internal/confirm"
+	"github.com/suecharo/mitsume/internal/tailio"
 )
 
 // GracePeriod は timeout 超過後 SIGTERM を送ってから SIGKILL までの猶予
@@ -373,33 +374,5 @@ func mergeEnv(parent []string, override map[string]string) []string {
 // truncateStderr は stderr の末尾を「20 行 or 2KB の小さい方」で切り出す
 // (docs/notify.md § payload 形式 と docs/checkers.md § cmd)。
 func truncateStderr(b []byte) string {
-	lines := lastNLines(b, stderrTailLines)
-	byteTail := b
-	if len(byteTail) > stderrTailBytes {
-		byteTail = byteTail[len(byteTail)-stderrTailBytes:]
-	}
-	if len(lines) < len(byteTail) {
-		return string(lines)
-	}
-
-	return string(byteTail)
-}
-
-// lastNLines は 末尾から n 行分の byte slice を返す。改行が n 個以下なら
-// 全体を返す (最小限)。
-func lastNLines(b []byte, n int) []byte {
-	if n <= 0 || len(b) == 0 {
-		return b
-	}
-	count := 0
-	for i := len(b) - 1; i >= 0; i-- {
-		if b[i] == '\n' {
-			count++
-			if count > n {
-				return b[i+1:]
-			}
-		}
-	}
-
-	return b
+	return string(tailio.Truncate(b, stderrTailLines, stderrTailBytes))
 }

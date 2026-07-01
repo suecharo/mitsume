@@ -24,12 +24,10 @@ func TestRun_UnknownSubcommandExits1(t *testing.T) {
 	}
 }
 
-func TestRun_UnimplementedSubcommandsExit2(t *testing.T) {
-	for _, sub := range []string{"check", "watch", "run"} {
-		t.Run(sub, func(t *testing.T) {
-			if code := run([]string{sub}); code != 2 {
-				t.Fatalf("run(%q) = %d, want 2", sub, code)
-			}
-		})
+func TestRun_RunWithoutCommandExits1(t *testing.T) {
+	// mitsume run は `--` 以降に <cmd> が必須 (docs/cli.md § run § 引数)。
+	// 未指定なら exit 1。
+	if code := run([]string{"run"}); code != 1 {
+		t.Fatalf("run([\"run\"]) = %d, want 1", code)
 	}
 }

@@ -154,7 +154,8 @@ mitsume check --config /etc/mitsume/mitsume.json
 - 設定 JSON を fail-fast で validate する。1 件でも違反があれば監視を開始せず exit 1。
 - 各 check の `interval` フィールドは無視する。
 - deadman を含む config なら heartbeat file を read only で開く。含まなければ heartbeat file は不要。
-- 全 check を評価する。failure を検知したら `confirm.checks` 回まで `confirm.interval` 間隔で連続確認し、全滅で failure を確定する。
+- 全 check を並列に評価する (1 check あたり 1 goroutine)。総経過時間は最も遅い 1 check の burst 完了時間に収束する。
+- failure を検知したら `confirm.checks` 回まで `confirm.interval` 間隔で連続確認し、全滅で failure を確定する。
 - failure が確定した check それぞれについて Slack に 1 通ずつ通知する。debounce しない。
 - 全 check の評価と通知が終わったら exit する。
 
@@ -213,19 +214,20 @@ User=mitsume
 ### 動作
 
 - 起動時に設定 JSON を fail-fast で validate する。1 件でも違反があれば監視を開始せず exit 1。
-- deadman を含む config なら heartbeat file を read only で開く。
+- deadman を含む config なら起動時 pre-flight で heartbeat file の read + parse を検証する (evaluation loop に入る前)。以降は評価サイクルの起点で 1 度だけ read し、同一サイクル (burst 含む) 内の deadman 評価はその snapshot を共有する。
 - 能動 check と deadman を同じ daemon 内で並列に評価する。
-- 各 check を `interval` ごとに評価する。failure 検知時は `confirm.checks` 回まで `confirm.interval` 間隔で連続確認し、全滅で failure を確定する。
+- 起動直後に 1 回目の評価を全 check に対して行い、以降は各 check ごとに独立に `interval` ごとの評価サイクルを回す。failure 検知時は `confirm.checks` 回まで `confirm.interval` 間隔で連続確認し、全滅で failure を確定する (payload には最終確認時の観測値を載せる)。
 - failure が確定した check ごとに Slack に 1 通通知する。次の `interval` サイクルで再度 failure なら再度 1 通、debounce しない。
-- `SIGINT` / `SIGTERM` を受けたら graceful shutdown する。停止時には best-effort で 1 発通知を送る。
-- `panic` は recover して 1 発通知を送ってから re-panic する。
+- `SIGINT` / `SIGTERM` を受けたら graceful shutdown する。走行中の評価は結果を破棄して次サイクルに入らず、停止時には best-effort で 1 発 announcement を送る (`text` は `[mitsume] watch stopped on host=<host> (signal=<name>, time=<RFC3339>)`、attachments は付けない)。
+- `panic` は recover して 1 発通知を送ってから re-panic する (Go runtime が stack trace を stderr に出し、プロセスは exit code `2` で終わる)。
 
 ### exit code
 
 | code | 意味 |
 |---|---|
 | `0` | `SIGINT` / `SIGTERM` による graceful shutdown |
-| `1` | 起動時の設定 validation 失敗、fatal な runtime error、panic |
+| `1` | 起動時の設定 validation 失敗、fatal な runtime error |
+| `2` | panic (Go runtime が re-panic を受けて出す標準 code) |
 
 ### 通知 / heartbeat file / 設定 JSON
 
@@ -301,6 +303,9 @@ mitsume run --name api-server -- /app/server
 | `0` | 子プロセスが exit code 0 で正常終了 |
 | 子の exit code | 子プロセスが非 0 で終了した場合、その値を透過 |
 | `124` | `--timeout` 超過で kill (GNU `timeout(1)` 慣習) |
+| `126` | 子プロセスの実行 permission が拒否された (bash 慣習) |
+| `127` | 子プロセスが `PATH` 上に見つからない (bash 慣習) |
+| `128 + signum` | 子プロセスが外部 signal で kill された (bash 慣習、例: `SIGINT` → `130`、`SIGTERM` → `143`)。`--timeout` 由来の kill は `124` を優先し、こちらは使わない |
 
 ### 通知 / heartbeat file / 設定 JSON
 
