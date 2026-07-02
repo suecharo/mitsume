@@ -20,8 +20,9 @@ import (
 // TestMain 分岐: 子プロセスとして起動された自身を fake binary として振る舞わせる
 // (cmd checker と同じ pattern)。
 //   - trap_term_sleep: SIGTERM を無視して 30s sleep (SIGKILL fallback を発火させる)
-//   - stderr_flood_exit1: stderr に 8192 バイトの 'Z' を出力して exit 1
-//     (ring buffer overflow → tail truncation の検証用)
+//   - stderr_flood_exit1: stderr に 8192 バイトの 'X' を出力して exit 1
+//     (ring buffer overflow → tail truncation の検証用)。'X' は RFC3339 UTC の
+//     'Z' suffix や他 field の文字と衝突しない選択。
 func TestMain(m *testing.M) {
 	switch os.Getenv("MITSUME_SUPERVISOR_TEST_FAKE") {
 	case "trap_term_sleep":
@@ -31,7 +32,7 @@ func TestMain(m *testing.M) {
 	case "stderr_flood_exit1":
 		buf := make([]byte, 8192)
 		for i := range buf {
-			buf[i] = 'Z'
+			buf[i] = 'X'
 		}
 		_, _ = os.Stderr.Write(buf)
 		os.Exit(1)
@@ -352,14 +353,15 @@ func TestRun_StderrRingBufferOverflowUsesTailBytes(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 notify, got %d", len(got))
 	}
-	// fake binary は 8192 bytes の 'Z' を stderr に出す。maxBytes=512 が勝つので
-	// tail は 512 bytes の 'Z'。failure text の他 field ("[mitsume] job failed
-	// (run: exit=1)" / "host:" / "time:" / "exit=1") には 'Z' が含まれないため、
-	// text 内の 'Z' 数がちょうど 512 なら tail truncation の実挙動を検証できる。
-	zCount := strings.Count(got[0].Text, "Z")
-	if zCount != 512 {
-		t.Fatalf("expected exactly 512 'Z' chars in payload (byte cap), got %d\ntext=%q",
-			zCount, got[0].Text)
+	// fake binary は 8192 bytes の 'X' を stderr に出す。maxBytes=512 が勝つので
+	// tail は 512 bytes の 'X'。failure text の他 field ("[mitsume] job failed
+	// (run: exit=1)" / "host:" / "time:" / "exit=1") には 'X' が含まれないため
+	// (時刻は RFC3339 で 0-9/-/:/T/Z/+ のみ)、text 内の 'X' 数がちょうど 512 なら
+	// tail truncation の実挙動を検証できる。
+	xCount := strings.Count(got[0].Text, "X")
+	if xCount != 512 {
+		t.Fatalf("expected exactly 512 'X' chars in payload (byte cap), got %d\ntext=%q",
+			xCount, got[0].Text)
 	}
 }
 
