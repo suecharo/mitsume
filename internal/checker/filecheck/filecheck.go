@@ -16,6 +16,7 @@ import (
 	"github.com/suecharo/mitsume/internal/checker"
 	"github.com/suecharo/mitsume/internal/config"
 	"github.com/suecharo/mitsume/internal/confirm"
+	"github.com/suecharo/mitsume/internal/durationx"
 	"github.com/suecharo/mitsume/internal/sizex"
 )
 
@@ -298,16 +299,21 @@ func (c *Checker) evaluateAttributes(target string, info os.FileInfo) checker.Re
 			c.expectedString(),
 		)
 	}
-	observed := c.observedString(info)
+	// mtime の経過時間は 1 度だけ観測し、text と observed の値を一致させる。
+	// 通知には秒精度で十分なので sub-second を落とす (docs/notify.md § Payload の
+	// mtime=26h ago 形式)。
+	var elapsed time.Duration
 	if c.mtimeWithin > 0 {
-		elapsed := c.clockNow().Sub(info.ModTime())
-		if elapsed >= c.mtimeWithin {
-			return checker.Failure(
-				fmt.Sprintf("mtime is %s old (>= mtime_within %s)", elapsed, c.mtimeWithin),
-				observed,
-				c.expectedString(),
-			)
-		}
+		elapsed = c.clockNow().Sub(info.ModTime())
+	}
+	observed := c.observedString(info, elapsed)
+	if c.mtimeWithin > 0 && elapsed >= c.mtimeWithin {
+		return checker.Failure(
+			fmt.Sprintf("mtime is %s old (>= mtime_within %s)",
+				durationx.Format(elapsed.Truncate(time.Second)), durationx.Format(c.mtimeWithin)),
+			observed,
+			c.expectedString(),
+		)
 	}
 	if c.sizeMin != nil && info.Size() < *c.sizeMin {
 		return checker.Failure(
@@ -327,12 +333,11 @@ func (c *Checker) evaluateAttributes(target string, info os.FileInfo) checker.Re
 	return checker.Success()
 }
 
-func (c *Checker) observedString(info os.FileInfo) string {
+func (c *Checker) observedString(info os.FileInfo, elapsed time.Duration) string {
 	var parts []string
 	parts = append(parts, "exists=true")
 	if c.mtimeWithin > 0 {
-		elapsed := c.clockNow().Sub(info.ModTime())
-		parts = append(parts, fmt.Sprintf("mtime=%s ago", elapsed))
+		parts = append(parts, fmt.Sprintf("mtime=%s ago", durationx.Format(elapsed.Truncate(time.Second))))
 	}
 	if c.sizeMin != nil || c.sizeMax != nil {
 		parts = append(parts, fmt.Sprintf("size=%s", sizex.Format(info.Size())))
@@ -347,7 +352,7 @@ func (c *Checker) expectedString() string {
 		parts = append(parts, fmt.Sprintf("exists=%t", *c.exists))
 	}
 	if c.mtimeWithin > 0 {
-		parts = append(parts, fmt.Sprintf("mtime_within=%s", c.mtimeWithin))
+		parts = append(parts, fmt.Sprintf("mtime_within=%s", durationx.Format(c.mtimeWithin)))
 	}
 	if c.sizeMin != nil {
 		parts = append(parts, fmt.Sprintf("size_min=%s", sizex.Format(*c.sizeMin)))

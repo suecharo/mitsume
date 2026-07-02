@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -213,4 +214,48 @@ func setupRunner(opts runnerSetupOpts) (*runner.Runner, int) {
 		Host:          hostName,
 		Subcommand:    opts.Subcommand,
 	}, 0
+}
+
+// splitFlags は args を flag 群と位置引数に分離する。Go の flag package は
+// 最初の非 flag 引数で parse を打ち切るため、docs/cli.md の使用例にある
+// 「位置引数の後ろに flag」(例: mitsume ping nightly-backup --dry-run) を
+// 成立させるにはこの前処理が要る。"--" 以降はすべて位置引数として扱う。
+// 値を取る flag は次の引数も flag 側へ寄せる (bool flag か否かは fs 上の
+// 定義から判定する)。未定義 flag はそのまま flag 側へ残し、fs.Parse に
+// エラーを報告させる。
+func splitFlags(fs *flag.FlagSet, args []string) (flags, positionals []string) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positionals = append(positionals, args[i+1:]...)
+
+			break
+		}
+		if len(arg) < 2 || arg[0] != '-' {
+			positionals = append(positionals, arg)
+
+			continue
+		}
+		flags = append(flags, arg)
+		name := strings.TrimLeft(arg, "-")
+		if strings.Contains(name, "=") {
+			continue
+		}
+		def := fs.Lookup(name)
+		if def == nil || isBoolFlag(def) || i+1 >= len(args) {
+			continue
+		}
+		i++
+		flags = append(flags, args[i])
+	}
+
+	return flags, positionals
+}
+
+// isBoolFlag は flag package と同じ規約 (Value が IsBoolFlag() bool を実装し
+// true を返すか) で bool flag を判定する。
+func isBoolFlag(def *flag.Flag) bool {
+	bf, ok := def.Value.(interface{ IsBoolFlag() bool })
+
+	return ok && bf.IsBoolFlag()
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/suecharo/mitsume/internal/checker"
 	"github.com/suecharo/mitsume/internal/config"
 	"github.com/suecharo/mitsume/internal/confirm"
+	"github.com/suecharo/mitsume/internal/durationx"
 )
 
 // DefaultTimeout は checker.timeout / defaults.timeout が両方未指定のときの
@@ -284,10 +285,14 @@ func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 		}
 	}
 	if c.expectLatency > 0 && elapsed >= c.expectLatency {
+		// latency は sub-second が本質なので ms 精度に切り詰めて可読化する
+		// (docs/notify.md § Payload)。
+		elapsedStr := durationx.Format(elapsed.Truncate(time.Millisecond))
+
 		return checker.Failure(
-			fmt.Sprintf("latency %s >= latency_under %s", elapsed, c.expectLatency),
-			fmt.Sprintf("latency=%s", elapsed),
-			fmt.Sprintf("latency_under=%s", c.expectLatency),
+			fmt.Sprintf("latency %s >= latency_under %s", elapsedStr, durationx.Format(c.expectLatency)),
+			fmt.Sprintf("latency=%s", elapsedStr),
+			fmt.Sprintf("latency_under=%s", durationx.Format(c.expectLatency)),
 		)
 	}
 
@@ -306,7 +311,7 @@ func (c *Checker) expectedString() string {
 		parts = append(parts, fmt.Sprintf("body_jsonpath (%d rules)", len(c.expectPath)))
 	}
 	if c.expectLatency > 0 {
-		parts = append(parts, fmt.Sprintf("latency_under=%s", c.expectLatency))
+		parts = append(parts, fmt.Sprintf("latency_under=%s", durationx.Format(c.expectLatency)))
 	}
 
 	return strings.Join(parts, ", ")

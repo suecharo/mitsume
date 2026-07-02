@@ -553,3 +553,34 @@ func TestEvaluate_TLSVerificationRejectsSelfSigned(t *testing.T) {
 		t.Fatalf("expected OK with trusted client")
 	}
 }
+
+func TestEvaluate_LatencyFailureFormatsDurationsHumanReadable(t *testing.T) {
+	t.Parallel()
+	// docs/notify.md § Payload: duration は可読形式で載せる。latency は
+	// sub-second が本質なので ms 精度に切り詰め、ns の生値を出さない。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	base := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	calls := 0
+	clock := func() time.Time {
+		calls++
+
+		return base.Add(time.Duration(calls) * 123456789 * time.Nanosecond)
+	}
+	c := mkChecker(t, fmt.Sprintf(`{"type": "http", "url": %q, "interval": "1h", "expect": {"latency_under": "10ms"}}`, srv.URL), Options{ClockNow: clock})
+	r := c.Evaluate(context.Background())
+	if r.OK {
+		t.Fatalf("expected failure for latency exceeded, got %+v", r)
+	}
+	if r.Error != "latency 123ms >= latency_under 10ms" {
+		t.Errorf("Error = %q, want %q", r.Error, "latency 123ms >= latency_under 10ms")
+	}
+	if r.Observed != "latency=123ms" {
+		t.Errorf("Observed = %q, want %q", r.Observed, "latency=123ms")
+	}
+	if r.Expected != "latency_under=10ms" {
+		t.Errorf("Expected = %q, want %q", r.Expected, "latency_under=10ms")
+	}
+}

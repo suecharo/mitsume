@@ -18,6 +18,7 @@ import (
 	"github.com/suecharo/mitsume/internal/checker"
 	"github.com/suecharo/mitsume/internal/config"
 	"github.com/suecharo/mitsume/internal/confirm"
+	"github.com/suecharo/mitsume/internal/durationx"
 	"github.com/suecharo/mitsume/internal/tailio"
 )
 
@@ -253,7 +254,7 @@ func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 	if exitCode != c.expectExit {
 		errMsg := fmt.Sprintf("exit=%d, want=%d", exitCode, c.expectExit)
 		if timedOut {
-			errMsg = fmt.Sprintf("timed out after %s (exit=%d)", c.timeout, exitCode)
+			errMsg = fmt.Sprintf("timed out after %s (exit=%d)", durationx.Format(c.timeout), exitCode)
 		}
 
 		return c.failureWithStderr(errMsg, fmt.Sprintf("exit=%d", exitCode), &stderr)

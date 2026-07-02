@@ -23,10 +23,10 @@ func runNotify(ctx context.Context, args []string) int {
 		fmt.Fprintln(fs.Output(), "Usage: mitsume notify [flags] <msg>")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	flagArgs, positional := splitFlags(fs, args)
+	if err := fs.Parse(flagArgs); err != nil {
 		return 1
 	}
-	positional := fs.Args()
 	if len(positional) < 1 {
 		fmt.Fprintln(os.Stderr, "mitsume notify: <msg> is required")
 

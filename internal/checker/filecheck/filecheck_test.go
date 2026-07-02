@@ -401,3 +401,39 @@ func TestEvaluate_MultipleConditionsANDFalse(t *testing.T) {
 		t.Fatalf("expected failure when one AND condition fails, got OK")
 	}
 }
+
+func TestEvaluate_MtimeFailureFormatsDurationsHumanReadable(t *testing.T) {
+	t.Parallel()
+	// docs/notify.md § Payload: observed は mtime=26h ago のような可読形式。
+	// sub-second の生値を載せず、text と observed は同一の観測値を共有する。
+	// clock を呼び出しごとに進め、観測を 2 回取ると text と observed が食い違う
+	// 状態を再現できるようにする。
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stale.txt")
+	base := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	writeFile(t, path, "x", base.Add(-(2*time.Hour + 456*time.Millisecond)))
+	calls := 0
+	clock := func() time.Time {
+		calls++
+
+		return base.Add(time.Duration(calls) * 100 * time.Millisecond)
+	}
+	raw := json.RawMessage(`{"type": "file", "path": "` + path + `", "interval": "1h", "expect": {"exists": true, "mtime_within": "10m"}}`)
+	c, err := Parse(raw, Options{ClockNow: clock})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	r := c.Evaluate(context.Background())
+	if r.OK {
+		t.Fatalf("expected failure, got OK")
+	}
+	if r.Error != "mtime is 2h old (>= mtime_within 10m)" {
+		t.Errorf("Error = %q, want %q", r.Error, "mtime is 2h old (>= mtime_within 10m)")
+	}
+	if r.Observed != "exists=true, mtime=2h ago" {
+		t.Errorf("Observed = %q, want %q", r.Observed, "exists=true, mtime=2h ago")
+	}
+	if r.Expected != "exists=true, mtime_within=10m" {
+		t.Errorf("Expected = %q, want %q", r.Expected, "exists=true, mtime_within=10m")
+	}
+}

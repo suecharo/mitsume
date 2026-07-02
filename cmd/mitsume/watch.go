@@ -82,10 +82,7 @@ func runWatch(parentCtx context.Context, args []string) int {
 	// 独立に走っているため、join なしでは Load が nil を返す race がある)。
 	sigWg.Wait()
 
-	sigName := "shutdown"
-	if receivedSig != nil {
-		sigName = receivedSig.String()
-	}
+	sigName := signalName(receivedSig)
 	// shutdown announcement は best-effort。ctx は既に cancel されているので新規
 	// background ctx を使う。dry-run 時は Notifier.Send が stderr へ payload を
 	// 書き出す (Slack へ POST しない、docs/cli.md § --dry-run)。
@@ -94,4 +91,21 @@ func runWatch(parentCtx context.Context, args []string) int {
 	}
 
 	return 0
+}
+
+// signalName は shutdown announcement に載せる signal 名を返す。docs/notify.md
+// § Shutdown announcement payload の signal=<name> は SIGTERM / SIGINT の慣用名
+// を指す (Go の Signal.String() は terminated / interrupt を返すため使わない)。
+// nil は parent ctx cancel など signal 由来でない停止の fallback。
+func signalName(sig os.Signal) string {
+	switch sig {
+	case nil:
+		return "shutdown"
+	case syscall.SIGTERM:
+		return "SIGTERM"
+	case syscall.SIGINT:
+		return "SIGINT"
+	}
+
+	return sig.String()
 }

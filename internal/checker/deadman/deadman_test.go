@@ -316,6 +316,50 @@ func TestEvaluate_ElapsedAboveWithin(t *testing.T) {
 	}
 }
 
+func TestEvaluate_FailureFormatsDurationsHumanReadable(t *testing.T) {
+	t.Parallel()
+	// docs/notify.md § Payload: observed は last_ping=25h12m ago のような
+	// 可読形式。sub-second の生値 (15.043201262s) を載せない。
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-(15*time.Second + 43201262*time.Nanosecond))
+	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": past})
+	raw := json.RawMessage(`{"type": "deadman", "job": "backup", "interval": "1h", "expect": {"within": "2s"}}`)
+	c, _ := Parse(raw, Options{HeartbeatFile: hbFile, ClockNow: fixedClock(now)})
+	r := c.Evaluate(context.Background())
+	if r.OK {
+		t.Fatalf("expected failure, got OK")
+	}
+	if r.Error != "no ping for 15s" {
+		t.Errorf("Error = %q, want %q", r.Error, "no ping for 15s")
+	}
+	if r.Observed != "last_ping=15s ago" {
+		t.Errorf("Observed = %q, want %q", r.Observed, "last_ping=15s ago")
+	}
+	if r.Expected != "within=2s" {
+		t.Errorf("Expected = %q, want %q", r.Expected, "within=2s")
+	}
+}
+
+func TestEvaluate_ExpectedTrimsZeroUnits(t *testing.T) {
+	t.Parallel()
+	// within=1h を 1h0m0s の Go 生表記ではなく 1h と載せる (docs/notify.md § Payload)。
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-(2*time.Hour + 123*time.Millisecond))
+	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": past})
+	raw := json.RawMessage(`{"type": "deadman", "job": "backup", "interval": "1h", "expect": {"within": "1h"}}`)
+	c, _ := Parse(raw, Options{HeartbeatFile: hbFile, ClockNow: fixedClock(now)})
+	r := c.Evaluate(context.Background())
+	if r.OK {
+		t.Fatalf("expected failure, got OK")
+	}
+	if r.Observed != "last_ping=2h ago" {
+		t.Errorf("Observed = %q, want %q", r.Observed, "last_ping=2h ago")
+	}
+	if r.Expected != "within=1h" {
+		t.Errorf("Expected = %q, want %q", r.Expected, "within=1h")
+	}
+}
+
 func TestEvaluate_ContextCanceled(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())

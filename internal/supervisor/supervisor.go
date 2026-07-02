@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/suecharo/mitsume/internal/durationx"
 	"github.com/suecharo/mitsume/internal/lifecycle"
 	"github.com/suecharo/mitsume/internal/notify"
 	"github.com/suecharo/mitsume/internal/tailio"
@@ -289,7 +290,7 @@ func startSignalForward(cfg Config, proc *exec.Cmd) func() {
 
 func formatFailureReason(exitCode int, timedOut bool, timeout time.Duration) string {
 	if timedOut {
-		return fmt.Sprintf("timed out after %s (killed with SIGTERM/SIGKILL)", timeout)
+		return fmt.Sprintf("timed out after %s (killed with SIGTERM/SIGKILL)", durationx.Format(timeout))
 	}
 	if exitCode >= SignalBase && exitCode < SignalBase+64 {
 		sig := syscall.Signal(exitCode - SignalBase)
@@ -306,12 +307,16 @@ func formatFailureReason(exitCode int, timedOut bool, timeout time.Duration) str
 	return fmt.Sprintf("exit=%d", exitCode)
 }
 
-// sendSuccess は成功通知 (announcement) を送る。docs/notify.md § 明示通知
-// § mitsume run 内部 に従い、text に success の 1 行を載せる。
+// sendSuccess は成功通知を送る。docs/notify.md § Success payload に従い、
+// text 1 行目 [mitsume] <name> succeeded (run: exit=0)、color "good"、
+// observed / expected exit=0 の payload を組み立てる。
 func (cfg Config) sendSuccess(ctx context.Context, name string) {
-	text := fmt.Sprintf("[mitsume] %s succeeded on host=%s (time=%s)",
-		name, cfg.Host, nowFn(cfg).Format(time.RFC3339))
-	payload := notify.BuildAnnouncement(text, cfg.Notifier.Options)
+	payload := notify.BuildSuccess(notify.Success{
+		Host:  cfg.Host,
+		Check: name,
+		Type:  "run",
+		Time:  nowFn(cfg),
+	}, cfg.Notifier.Options)
 	if err := cfg.Notifier.Send(ctx, payload); err != nil {
 		fmt.Fprintf(os.Stderr, "mitsume run: success notify failed for %s: %v\n", name, err)
 	}

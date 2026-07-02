@@ -71,3 +71,17 @@ func TestParse_Property_NegativeDaysReflectSign(t *testing.T) {
 		}
 	})
 }
+
+func TestFormat_Property_ParseRoundTrip(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		d := time.Duration(rapid.Int64Range(0, int64(10000*time.Hour)).Draw(t, "d"))
+		formatted := durationx.Format(d)
+		parsed, err := durationx.Parse(formatted)
+		if err != nil {
+			t.Fatalf("Parse(Format(%v)) = Parse(%q) errored: %v", d, formatted, err)
+		}
+		if parsed != d {
+			t.Fatalf("round trip mismatch: %v -> %q -> %v", d, formatted, parsed)
+		}
+	})
+}

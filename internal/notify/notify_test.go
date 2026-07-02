@@ -327,3 +327,55 @@ func TestSend_EmptyWebhookIsError(t *testing.T) {
 		t.Fatalf("expected error for empty webhook")
 	}
 }
+
+func TestBuildSuccess_TextFormatMatchesSpec(t *testing.T) {
+	t.Parallel()
+	p := notify.BuildSuccess(notify.Success{
+		Host:  "api-prod-01",
+		Check: "nightly-backup",
+		Type:  "run",
+		Time:  time.Date(2026, 6, 30, 14, 23, 15, 0, time.FixedZone("JST", 9*3600)),
+	}, notify.Options{})
+	want := "[mitsume] nightly-backup succeeded (run: exit=0)\nhost: api-prod-01\ntime: 2026-06-30T14:23:15+09:00"
+	if p.Text != want {
+		t.Fatalf("Text = %q, want %q", p.Text, want)
+	}
+}
+
+func TestBuildSuccess_AttachmentColorIsGood(t *testing.T) {
+	t.Parallel()
+	p := notify.BuildSuccess(notify.Success{
+		Host: "h1", Check: "c1", Type: "run", Time: time.Now(),
+	}, notify.Options{})
+	if len(p.Attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(p.Attachments))
+	}
+	if p.Attachments[0].Color != "good" {
+		t.Fatalf("Color = %q, want good", p.Attachments[0].Color)
+	}
+}
+
+func TestBuildSuccess_FieldsCarryExitZero(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 6, 30, 14, 23, 15, 0, time.UTC)
+	p := notify.BuildSuccess(notify.Success{
+		Host: "h1", Check: "c1", Type: "run", Time: ts,
+	}, notify.Options{})
+	fields := p.Attachments[0].Fields
+	want := []notify.Field{
+		{Title: "host", Value: "h1", Short: true},
+		{Title: "check", Value: "c1", Short: true},
+		{Title: "type", Value: "run", Short: true},
+		{Title: "time", Value: "2026-06-30T14:23:15Z", Short: true},
+		{Title: "observed", Value: "exit=0", Short: false},
+		{Title: "expected", Value: "exit=0", Short: false},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d", len(want), len(fields))
+	}
+	for i, w := range want {
+		if fields[i] != w {
+			t.Fatalf("fields[%d] = %+v, want %+v", i, fields[i], w)
+		}
+	}
+}

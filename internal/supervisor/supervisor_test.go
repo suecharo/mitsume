@@ -118,11 +118,26 @@ func TestRun_SuccessNotifies(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 success notify, got %d", len(got))
 	}
-	if !strings.Contains(got[0].Text, "job succeeded") {
-		t.Fatalf("success text must mention name, got %q", got[0].Text)
+	if !strings.Contains(got[0].Text, "[mitsume] job succeeded (run: exit=0)") {
+		t.Fatalf("success text must follow the success payload format, got %q", got[0].Text)
 	}
-	if len(got[0].Attachments) != 0 {
-		t.Fatalf("success announcement must not carry attachments, got %d", len(got[0].Attachments))
+	if len(got[0].Attachments) != 1 {
+		t.Fatalf("success payload must carry 1 attachment, got %d", len(got[0].Attachments))
+	}
+	if got[0].Attachments[0].Color != "good" {
+		t.Fatalf("success attachment color must be good, got %q", got[0].Attachments[0].Color)
+	}
+	var observed, expected string
+	for _, f := range got[0].Attachments[0].Fields {
+		switch f.Title {
+		case "observed":
+			observed = f.Value
+		case "expected":
+			expected = f.Value
+		}
+	}
+	if observed != "exit=0" || expected != "exit=0" {
+		t.Fatalf("observed/expected must be exit=0, got %q / %q", observed, expected)
 	}
 }
 

@@ -78,22 +78,57 @@ func BuildFailure(f Failure, opts Options) SlackPayload {
 		f.Check, f.Type, f.Error, f.Host, ts)
 
 	return SlackPayload{
-		Username:  opts.Username,
-		IconEmoji: opts.IconEmoji,
-		IconURL:   opts.IconURL,
-		Text:      text,
-		Attachments: []Attachment{{
-			Color: "danger",
-			Fields: []Field{
-				{Title: "host", Value: f.Host, Short: true},
-				{Title: "check", Value: f.Check, Short: true},
-				{Title: "type", Value: f.Type, Short: true},
-				{Title: "time", Value: ts, Short: true},
-				{Title: "observed", Value: f.Observed, Short: false},
-				{Title: "expected", Value: f.Expected, Short: false},
-			},
-		}},
+		Username:    opts.Username,
+		IconEmoji:   opts.IconEmoji,
+		IconURL:     opts.IconURL,
+		Text:        text,
+		Attachments: buildAttachments("danger", f.Host, f.Check, f.Type, ts, f.Observed, f.Expected),
 	}
+}
+
+// Success は mitsume run の成功通知 payload を組み立てる材料。docs/notify.md
+// § Success payload に従い、observed / expected はともに exit=0 固定のため
+// field として持たない。
+type Success struct {
+	Host  string
+	Check string
+	Type  string
+	Time  time.Time
+}
+
+// BuildSuccess は mitsume run の成功通知用 payload を作る。text の 1 行目は
+// [mitsume] <check> succeeded (<type>: exit=0) 形式、attachments[0].color は
+// "good"、observed / expected は exit=0。stderr tail は含めない (docs/notify.md
+// § Success payload)。
+func BuildSuccess(s Success, opts Options) SlackPayload {
+	ts := s.Time.Format(time.RFC3339)
+	text := fmt.Sprintf("[mitsume] %s succeeded (%s: exit=0)\nhost: %s\ntime: %s",
+		s.Check, s.Type, s.Host, ts)
+
+	return SlackPayload{
+		Username:    opts.Username,
+		IconEmoji:   opts.IconEmoji,
+		IconURL:     opts.IconURL,
+		Text:        text,
+		Attachments: buildAttachments("good", s.Host, s.Check, s.Type, ts, "exit=0", "exit=0"),
+	}
+}
+
+// buildAttachments は failure / success payload 共通の attachment を組み立てる。
+// fields の並び (host / check / type / time / observed / expected) は
+// docs/notify.md § Payload に従う。
+func buildAttachments(color, host, check, typ, ts, observed, expected string) []Attachment {
+	return []Attachment{{
+		Color: color,
+		Fields: []Field{
+			{Title: "host", Value: host, Short: true},
+			{Title: "check", Value: check, Short: true},
+			{Title: "type", Value: typ, Short: true},
+			{Title: "time", Value: ts, Short: true},
+			{Title: "observed", Value: observed, Short: false},
+			{Title: "expected", Value: expected, Short: false},
+		},
+	}}
 }
 
 // DefaultBackoffs は Slack HTTP retry の待ち時間 (1s → 2s → 4s、合計 7 秒)。

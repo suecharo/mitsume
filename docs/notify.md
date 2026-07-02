@@ -51,6 +51,7 @@ payload の組み立て規則は次の通りである。
 | `container` | `state=exited` | `running=true` |
 | `cmd` | `exit=1` | `exit=0` |
 
+- `text` / `observed` / `expected` に載せる duration は、Go 標準表記から末尾のゼロ単位を省いた形式とする (`26h0m0s` ではなく `26h`、`25h12m0s` ではなく `25h12m`)。経過時間の観測値 (`last_ping` / `mtime`) は秒精度に、`latency` はミリ秒精度に切り詰めて sub-second の生値を載せない。
 - `host` の解決順は [configuration.md § Host identifier](configuration.md#host-identifier) を参照する。
 - `time` は binary を実行するプロセスの local timezone で ISO 8601 化する。timezone を上書きする設定 field は持たない。
 - [confirm burst](architecture.md#用語) を通過して failure が確定した場合、`observed` / `expected` と `text` の `<type>: <error>` 括弧内には burst 最終確認 (最も新しい観測) の値を載せる。burst 途中で観測値が変わった場合でも、Slack に送信する時点で最新の観測を反映する。

@@ -12,6 +12,7 @@ import (
 	"github.com/suecharo/mitsume/internal/checker"
 	"github.com/suecharo/mitsume/internal/config"
 	"github.com/suecharo/mitsume/internal/confirm"
+	"github.com/suecharo/mitsume/internal/durationx"
 	"github.com/suecharo/mitsume/internal/heartbeat"
 )
 
@@ -157,7 +158,7 @@ func (c *Checker) Within() time.Duration { return c.within }
 // それを優先し、docs/heartbeat.md § 読み込みモデル の「サイクル起点で 1 度
 // だけ read」を成立させる。nil の場合は都度 heartbeat.Load(path) する。
 func (c *Checker) Evaluate(ctx context.Context) checker.Result {
-	expected := fmt.Sprintf("within=%s", c.within)
+	expected := fmt.Sprintf("within=%s", durationx.Format(c.within))
 	if err := ctx.Err(); err != nil {
 		return checker.Failure(
 			fmt.Sprintf("context canceled: %v", err),
@@ -191,9 +192,13 @@ func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 	}
 	elapsed := c.clockNow().Sub(entry.LastPingAt)
 	if elapsed >= c.within {
+		// 通知には秒精度で十分。sub-second の生値は可読性を下げるだけなので落とす
+		// (docs/notify.md § Payload の last_ping=25h12m ago 形式)。
+		elapsedStr := durationx.Format(elapsed.Truncate(time.Second))
+
 		return checker.Failure(
-			fmt.Sprintf("no ping for %s", elapsed),
-			fmt.Sprintf("last_ping=%s ago", elapsed),
+			fmt.Sprintf("no ping for %s", elapsedStr),
+			fmt.Sprintf("last_ping=%s ago", elapsedStr),
 			expected,
 		)
 	}

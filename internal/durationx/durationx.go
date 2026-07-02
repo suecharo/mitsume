@@ -1,12 +1,14 @@
 // Package durationx は、Go 標準の time.ParseDuration に "d" (日、= 24h) 単位を
-// 加えた duration parser を提供する。書式の詳細は docs/configuration.md § duration
-// 表記 に従う。
+// 加えた duration parser と、通知向けの human-readable formatter を提供する。
+// 書式の詳細は docs/configuration.md § duration 表記 と docs/notify.md § Payload
+// に従う。
 package durationx
 
 import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,4 +47,20 @@ func Parse(s string) (time.Duration, error) {
 	}
 
 	return d, nil
+}
+
+// Format は duration を Go 標準表記から末尾のゼロ単位を省いた形で文字列化する
+// (26h0m0s -> 26h、25h12m0s -> 25h12m)。docs/notify.md § Payload の observed /
+// expected に載せる duration の表記に使う。値は一切丸めない。観測した経過時間の
+// sub-second を落としたい場合は呼び出し側で Truncate してから渡す。
+func Format(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+
+	return s
 }
