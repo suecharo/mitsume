@@ -1,24 +1,26 @@
 # mitsume
 
-mitsume は小規模運用の死活監視を Slack Incoming Webhook 1 本と single static binary 1 個で完結させる Go 製 CLI である。
+mitsume は小規模運用向けの死活監視 CLI である。「動いているはずのものが動いていない」ことに気づくための道具で、通知は Slack Incoming Webhook 1 本に送る。
+
+- **Single binary, no dependencies** — 監視 agent も DB も専用サーバーも不要。Go 製 static binary 1 個を置くだけで動く
+- **設定ファイルなしで始められる** — 既存 script への 1 行差し込み (`mitsume notify`) やコマンドの wrap (`mitsume run`) は設定 JSON なしで動く
+- **対象は小規模運用** — host 数個・check 数十個の規模。Prometheus / Datadog を組むほどではない homelab・社内 batch サーバーの層を埋める
 
 監視できる対象:
 
 - HTTP endpoint の応答
 - cron / batch job の走り忘れ (dead-man's switch)
-- backup file の mtime、size
+- backup file の mtime / size
 - container の稼働状態
 - 任意コマンドの exit code
 
-script に 1 行差し込む単発通知から、systemd で常駐する複数対象監視まで、同じ binary で組める。
-
 ## Install
 
-3 通りの入手方法がある。用途に応じて選ぶ。
+入手方法は 3 通り。
 
 ### Binary (GitHub Releases)
 
-Linux / macOS / Windows の pre-built binary を [Releases](https://github.com/suecharo/mitsume/releases) からダウンロードする。`checksums.txt` の sha256 で integrity を検証できる。
+Linux / macOS / Windows の pre-built binary が [Releases](https://github.com/suecharo/mitsume/releases) にある。`checksums.txt` の sha256 で integrity を検証できる。
 
 ```bash
 # Linux amd64 の例 (arm64 / darwin / windows は archive 名を差し替える)
@@ -40,21 +42,21 @@ mitsume version
 
 ### Docker image
 
-`ghcr.io/suecharo/mitsume` から distroless base の multi-arch (linux/amd64、linux/arm64) image を pull する。
+`ghcr.io/suecharo/mitsume` に distroless base の multi-arch (linux/amd64, linux/arm64) image がある。
 
 ```bash
 docker pull ghcr.io/suecharo/mitsume:v<VERSION>
 docker run --rm ghcr.io/suecharo/mitsume:v<VERSION> version
 ```
 
-container 上での運用パターンは [docs/recipes.md § mitsume 自身の container 化](docs/recipes.md#mitsume-自身の-container-化) を参照する。
+container 上での運用パターン: [docs/recipes.md § mitsume 自身の container 化](docs/recipes.md#mitsume-自身の-container-化)
 
 ## Quickstart
 
-Slack ワークスペースで Incoming Webhook を 1 本発行してから開始する。
+前提: Slack ワークスペースで発行した Incoming Webhook 1 本 (発行手順は [docs/getting-started.md](docs/getting-started.md))。
 
 ```bash
-# 1. Webhook URL を env に置く (CLI 引数で値を直接渡す方式は提供しない)
+# 1. Webhook URL を env に置く
 export MITSUME_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T.../B.../...'
 
 # 2. 単発通知で疎通を確認する
@@ -64,25 +66,77 @@ mitsume notify "hello from mitsume"
 mitsume run --name daily-report -- /usr/local/bin/daily-report.sh
 ```
 
-ここまでは設定 JSON なしで動作する。cron の走り忘れ検知、HTTP endpoint の巡回、systemd での常駐化までの通し手順は [docs/getting-started.md](docs/getting-started.md) を参照する。
+ここまで設定 JSON なしで動く。Webhook URL を CLI 引数で直接渡す方式はない (env 経由のみ。理由は [docs/architecture.md § Security invariants](docs/architecture.md#security-invariants))。
 
-## サブコマンドの使い分け
+cron の走り忘れ検知から systemd での常駐化までの通し手順: [docs/getting-started.md](docs/getting-started.md)
 
-全 subcommand で共通の Slack Webhook 1 本を使う。
+## 監視を組む
 
-| やりたいこと | Subcommand | 設定 JSON |
-|---|---|---|
-| 既存 script から Slack に 1 通送信する | `mitsume notify <msg>` | 不要 |
-| コマンドを wrap して成功 / 失敗を通知する | `mitsume run -- <cmd>` | 不要 |
-| cron / batch job 側で完了を記録する (dead-man's switch) | `mitsume ping <job>` | 不要 |
-| 監視側で job の失踪を検知する (dead-man's switch の評価) | `mitsume check --config <path>` または `mitsume watch --config <path>` | 必要 |
-| 外部 cron から endpoint / file / container を巡回する | `mitsume check --config <path>` | 必要 |
-| systemd で常駐して監視する | `mitsume watch --config <path>` | 必要 |
-| binary の version / commit / build date を表示する | `mitsume version` | 不要 |
+継続的な監視は 5 種の checker (`http` / `deadman` / `file` / `container` / `cmd`) を設定 JSON 1 個に並べて定義する。動く最小形:
 
-dead-man's switch は「job 側で `mitsume ping` を送る」と「監視側で `mitsume check` または `mitsume watch` が評価する」の 2 command の組で構成する。`mitsume check` は外部 cron 用途 (走り忘れの評価と endpoint 巡回) で共通に使う subcommand であり、上表の 3 行目と 5 行目は同じ subcommand の異なる利用パターンを示す。
+```json
+{
+  "notify": {
+    "webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL"
+  },
+  "checks": [
+    {
+      "type": "http",
+      "name": "api-health",
+      "url": "https://api.example.com/health",
+      "expect": { "status": 200 },
+      "interval": "1h"
+    }
+  ]
+}
+```
 
-各 subcommand の引数と exit code は [docs/cli.md](docs/cli.md) を、設定 JSON の schema は [docs/configuration.md](docs/configuration.md) を参照する。
+これを `./mitsume.json` に置けば、path 指定なしで `mitsume watch` が読む。
+
+```bash
+mitsume watch    # 常駐して評価し続ける
+mitsume check    # cron から 1 回だけ評価する
+```
+
+- 設定 JSON の schema 全体: [docs/configuration.md](docs/configuration.md)
+- systemd / cron / Docker への組み込み: [docs/recipes.md](docs/recipes.md)
+
+## サブコマンド
+
+設定 JSON なしで動くもの:
+
+| Subcommand                             | 用途                                                     |
+| -------------------------------------- | -------------------------------------------------------- |
+| `mitsume notify <msg>`                 | Slack に 1 通送信する。script への差し込み用             |
+| `mitsume run [--name <name>] -- <cmd>` | コマンドを wrap し、終了時に成功 / 失敗を通知する        |
+| `mitsume ping [<job>]`                 | dead-man's switch の heartbeat を記録する (通知はしない) |
+| `mitsume version`                      | version / commit / build date を表示する                 |
+
+設定 JSON で監視を定義して使うもの:
+
+| Subcommand      | 用途                                                           |
+| --------------- | -------------------------------------------------------------- |
+| `mitsume check` | 全 check を 1 回評価して exit する。外部 cron からの呼び出し用 |
+| `mitsume watch` | 常駐し、check ごとの interval で評価し続ける。systemd 向け     |
+
+dead-man's switch は 2 つの subcommand の組で動く。job 側の `mitsume ping` が heartbeat file に完了時刻を記録し、監視側の `mitsume check` / `mitsume watch` が「期限内に ping が来たか」を評価する。
+
+```
++----------+  ping   +----------------+  read   +---------------+  notify  +-------+
+| cron job | ------> | heartbeat file | <------ | check / watch | -------> | Slack |
++----------+         +----------------+         +---------------+          +-------+
+```
+
+各 subcommand の引数と exit code: [docs/cli.md](docs/cli.md)
+
+## やらないこと
+
+機能を足さないことで運用の単純さを保つ設計である。以下は意図的に対象外 (理由も含めた一覧は [docs/architecture.md § Non-goals](docs/architecture.md#non-goals)):
+
+- Slack 以外の通知先、channel 別の routing
+- 時系列メトリクス、ダッシュボード、SLO 計算
+- debounce / recovery 通知 / リマインド (状態を持たない設計のため構造的に不採用)
+- web UI / REST API / 実行時の config reload
 
 ## ドキュメント
 
@@ -113,7 +167,7 @@ make build     # single static binary をビルドする
 make test      # unit / PBT / integration test を実行する
 ```
 
-test 設計と mock 境界の方針は [tests/README.md](tests/README.md) を参照する。
+test 設計と mock 境界の方針: [tests/README.md](tests/README.md)
 
 ## License
 
