@@ -1,51 +1,43 @@
 # Recipes
 
-「〜したい」から引く運用パターン集。Slack Webhook の発行や env の置き方は済んでいる前提で書く。ゼロから通しで動かす手順は [getting-started.md](getting-started.md) を参照。
+運用パターン別の設定例をまとめる。Slack Webhook の発行と env の設定は済んでいる前提で書く。ゼロから通しで動かす手順は [getting-started.md](getting-started.md) を参照する。
 
-> ここで参照している `v0.1.0` の release archive URL や `ghcr.io/suecharo/mitsume:v0.1.0` image は tag 打刻後に有効になる。tag が未打刻の間はローカル build (`make build`) の binary で試すか、Status に載っている手順で入手する。
-
-- [shell script 末尾で失敗時だけ通知したい](#shell-script-末尾で失敗時だけ通知したい)
-- [systemd unit の失敗を丸ごと拾いたい](#systemd-unit-の失敗を丸ごと拾いたい)
-- [batch job を wrap して成功 / 失敗どちらも通知したい](#batch-job-を-wrap-して成功--失敗どちらも通知したい)
-- [Dockerfile の ENTRYPOINT で run に wrap したい](#dockerfile-の-entrypoint-で-run-に-wrap-したい)
-- [cron の走り忘れを検知したい](#cron-の走り忘れを検知したい)
-- [HTTP endpoint / file / container を常駐で見張りたい](#http-endpoint--file--container-を常駐で見張りたい)
-- [Docker container の稼働を監視したい](#docker-container-の稼働を監視したい)
-- [mitsume 自身を container 化したい](#mitsume-自身を-container-化したい)
-
-前提となる env は全 recipe 共通で以下。
+Webhook URL の受け渡しは env 経由でのみ行う。以下の `export` は対話 shell から動作を確認する場合の例であり、systemd では `EnvironmentFile=` / cron では inline env / Docker では compose の `environment:` と、各 recipe で env の渡し方が異なる。
 
 ```bash
 export MITSUME_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/T.../B.../...'
 ```
 
-任意の env 名を使うなら `--slack-webhook-url-env <NAME>` を渡す ([notify.md](notify.md#秘密情報の扱い) を参照)。
+任意の env 名を使う場合は `--slack-webhook-url-env <NAME>` を渡す ([notify.md § 秘密情報](notify.md#秘密情報) を参照)。
 
-## shell script 末尾で失敗時だけ通知したい
+## Shell 失敗通知
 
-`mitsume notify` を `||` の後ろに置く。設定 JSON も heartbeat file も要らない。
+shell script の末尾で失敗時のみ通知する場合は `mitsume notify` を `||` の後ろに置く。設定 JSON も heartbeat file も必要としない。
 
 ```bash
 #!/bin/bash
 set -euo pipefail
 
 /usr/local/bin/some-batch.sh || {
-  /usr/local/bin/mitsume notify "some-batch failed on $(hostname): exit $?"
-  exit 1
+  rc=$?
+  /usr/local/bin/mitsume notify "some-batch failed on $(hostname): exit $rc"
+  exit "$rc"
 }
 ```
 
-「成功も失敗も両方通知したい」なら [batch job を wrap して...](#batch-job-を-wrap-して成功--失敗どちらも通知したい) に寄せる。`notify` は明示的に呼んだときに 1 通投げるサブコマンドなので、成功系のロジックは持たない。
+`||` に入った直後に `rc=$?` で失敗時の exit code を保存する。この保存を挟まず `"exit $?"` を書くと、`$(hostname)` の展開後に `$?` が hostname の exit code (`0`) で上書きされ、常に `exit 0` と通知される点に注意する。
 
-事前に payload を確認するには `--dry-run` を挟む。
+`mitsume notify` は明示的に呼び出したときに 1 通を送信するだけの subcommand であり、成功時に自動で通知を送る仕組みは持たない。成功も通知したい場合は [Batch job の wrap 実行](#batch-job-の-wrap-実行) で `mitsume run` を用いる。
+
+事前に payload を確認する場合は `--dry-run` を挟む。
 
 ```bash
 mitsume notify --dry-run "test from $(hostname)"
 ```
 
-## systemd unit の失敗を丸ごと拾いたい
+## systemd unit 失敗の捕捉
 
-任意の service unit に `OnFailure=` を 1 行足せば、失敗ごとに Slack に投げる template unit を共通で使える。
+任意の service unit に `OnFailure=` を 1 行足すと、失敗のたびに Slack へ通知する template unit を共通で利用できる。
 
 対象の unit (`/etc/systemd/system/some-batch.service`):
 
@@ -62,7 +54,7 @@ ExecStart=/usr/local/bin/some-batch.sh
 WantedBy=multi-user.target
 ```
 
-notifier template unit (`/etc/systemd/system/mitsume-notify@.service`):
+Notifier template unit (`/etc/systemd/system/mitsume-notify@.service`):
 
 ```ini
 [Unit]
@@ -80,9 +72,9 @@ env file (`/etc/mitsume/webhook.env`、mode 0640、group root):
 MITSUME_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../...
 ```
 
-`%i` に失敗した unit 名 (`some-batch.service`) が入り、`%H` に host 名が入る。template 1 個で任意の unit の失敗を拾える。
+`%i` には失敗した unit 名 (`some-batch.service`) が、`%H` には host 名が入る。template 1 個で任意の unit の失敗を捕捉できる。
 
-失敗テスト。
+動作確認:
 
 ```bash
 sudo systemctl daemon-reload
@@ -90,27 +82,27 @@ sudo systemctl start some-batch.service
 sudo journalctl -u mitsume-notify@some-batch.service -n 20
 ```
 
-## batch job を wrap して成功 / 失敗どちらも通知したい
+## Batch job の wrap 実行
 
-`mitsume run --name <name> -- <cmd>` で子プロセスを起動して、exit code で成否を判定する。子の stderr 末尾は失敗通知に自動で乗る (デフォルト 20 行 or 2KB の小さい方)。
+`mitsume run --name <name> -- <cmd>` で子プロセスを起動し、exit code で成否を判定する。子の stderr 末尾は失敗通知に自動で含まれる (default 20 行または 2KB の小さい方)。
 
 ```bash
 mitsume run --name nightly-backup -- /usr/local/bin/nightly-backup.sh
 ```
 
-成功時通知を消すなら `--quiet-on-success`。
+成功時通知を抑止する場合は `--quiet-on-success` を指定する。
 
 ```bash
 mitsume run --quiet-on-success --name nightly-backup -- /usr/local/bin/nightly-backup.sh
 ```
 
-timeout を設けるなら `--timeout` + `--grace-period`。timeout kill で exit code は `124` (GNU `timeout(1)` 慣習)。
+timeout を設ける場合は `--timeout` と `--grace-period` を組み合わせる。`mitsume run` は `--timeout` 超過で子を kill した場合、自身の exit code を `124` にする (GNU `timeout(1)` 慣習)。
 
 ```bash
 mitsume run --name daily-report --timeout 30m --grace-period 5s -- /usr/local/bin/daily-report.sh
 ```
 
-systemd の timer から `oneshot` として叩く例。
+systemd の timer から `oneshot` として呼び出す例:
 
 `/etc/systemd/system/nightly-backup.service`:
 
@@ -142,51 +134,67 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-`ExecStartPost=` は `ExecStart=` の exit 0 のときだけ走る (systemd の仕様)。子が失敗すれば `run` の失敗通知が Slack に飛び、`ping` は打たれない。この場合 [cron の走り忘れを検知したい](#cron-の走り忘れを検知したい) の deadman 側が次サイクルで失踪を検知する。
+`ExecStartPost=` は `ExecStart=` が exit 0 で終わった場合のみ実行される (systemd の仕様)。子が失敗した場合は `run` の失敗通知が Slack に送信され、`ping` は実行されない。この場合 [Cron の走り忘れ検知](#cron-の走り忘れ検知) の `deadman` 側が次サイクルで失踪を検知する。
 
-意図的に失敗するコマンドで挙動を見るには:
+意図的に失敗する例:
 
 ```bash
 mitsume run --name test-fail -- /bin/sh -c 'echo "bad thing" >&2; exit 1'
 ```
 
-Slack に「`[mitsume] test-fail failed (run: exit 1)`」と、stderr 末尾の `bad thing` が届く。
+Slack には `[mitsume] test-fail failed (run: exit=1)` と stderr 末尾の `bad thing` が届く。
 
-## Dockerfile の ENTRYPOINT で run に wrap したい
+## Dockerfile ENTRYPOINT wrap
 
-container の主プロセスを `mitsume run` の子にする。子が exit すれば container も exit し、失敗時は Slack に通知が飛ぶ。
+container の主プロセスを `mitsume run` の子として起動する。子が exit すれば container も exit し、失敗時は Slack に通知が送信される。
 
 ```dockerfile
 FROM debian:stable-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-COPY --from=ghcr.io/suecharo/mitsume:v0.1.0 /mitsume /usr/local/bin/mitsume
+COPY --from=ghcr.io/suecharo/mitsume:v<VERSION> /mitsume /usr/local/bin/mitsume
 COPY app /app
 ENV MITSUME_HOST=api-prod-01
 ENTRYPOINT ["mitsume", "run", "--name", "api-server", "--"]
 CMD ["/app/server"]
 ```
 
-`MITSUME_SLACK_WEBHOOK_URL` は `docker run -e` / compose の `environment:` / secret volume で渡す。image に焼き込まない。
+`MITSUME_SLACK_WEBHOOK_URL` は `docker run -e`、compose の `environment:`、secret volume 経由で渡す。image に同梱しない。
 
-`MITSUME_HOST` を container ごとに切ることで、通知の `host` フィールドで区別できる。決定順は [notify.md](notify.md#payload-形式) を参照。
+`MITSUME_HOST` を container ごとに切り替えることで、通知の `host` field で container を識別できる。決定順は [configuration.md § Host identifier](configuration.md#host-identifier) を参照する。
 
-## cron の走り忘れを検知したい
+## Cron の走り忘れ検知
 
-`mitsume ping <job>` で「job が完了した」を heartbeat file に打刻し、別プロセスの `mitsume check` (または `watch`) の `deadman` checker が「最後の ping から `within` を超えて古い」を Slack に投げる。
+`mitsume ping <job>` で「job が完了した」を heartbeat file に記録し、別プロセスの `mitsume check` (または `watch`) の `deadman` checker が「最後の ping から `within` を超えて古い」場合に Slack へ通知する。
 
-同一 host で cron を 2 本立てる例:
+webhook URL を crontab に直書きすると `crontab -l` や `/var/spool/cron/crontabs/*` から漏れやすいため、wrapper script 経由で env file から読み込む。監視側 config の `heartbeat_file` field で heartbeat path を SSOT 化し、`ping` 側は `--heartbeat-file` flag で同じ path を明示する。
+
+wrapper script (`/etc/mitsume/check-cron.sh`、mode 0755):
+
+```bash
+#!/bin/sh
+. /etc/mitsume/webhook.env
+exec /usr/local/bin/mitsume check --config /etc/mitsume/mitsume.json
+```
+
+env file (`/etc/mitsume/webhook.env`、mode 0640、group root):
+
+```ini
+MITSUME_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../...
+```
+
+同一 host で cron を 2 本立てる crontab:
 
 ```text
-# job 完了時に ping を打つ (heartbeat file は `--heartbeat-file` で ping 側にだけ渡す)
+# job 完了時に ping を送信する (heartbeat file は `--heartbeat-file` で ping 側に渡す)
 0 3 * * * /usr/local/bin/nightly-backup.sh && /usr/local/bin/mitsume ping --heartbeat-file /var/lib/mitsume/heartbeat.json nightly-backup
 15 * * * * /usr/local/bin/hourly-etl.sh && /usr/local/bin/mitsume ping --heartbeat-file /var/lib/mitsume/heartbeat.json hourly-etl
 
-# 評価側は 1 時間に 1 回 (env prefix は単一コマンドなので届く)
-0 * * * * MITSUME_HEARTBEAT_FILE=/var/lib/mitsume/heartbeat.json MITSUME_SLACK_WEBHOOK_URL=https://... /usr/local/bin/mitsume check --config /etc/mitsume/mitsume.json
+# 監視側は 1 時間ごとに check を実行する
+0 * * * * /etc/mitsume/check-cron.sh
 ```
 
-評価側の config (`/etc/mitsume/mitsume.json`):
+監視側の config (`/etc/mitsume/mitsume.json`):
 
 ```json
 {
@@ -210,26 +218,32 @@ CMD ["/app/server"]
 }
 ```
 
-`expect.within` は「cron の実行間隔 + 1 サイクル分の buffer」を目安に置く。1 日 1 回の cron なら `25h`、1 時間ごとなら `90m` のように。
+`expect.within` は「job の実行間隔 + 監視側 `check` の cadence + 若干の余裕」を目安に設定する。daily 実行を hourly の `check` で監視するなら `25h`、hourly 実行を hourly の `check` で監視するなら `2h30m` 程度を選ぶ。
 
-ping 側と評価側でユーザーが違う場合 (`ping` は app ユーザー、`check` は systemd 専用ユーザー、など) は、両者から同じ heartbeat file を read / write できる permission と、同じ path を指す `MITSUME_HEARTBEAT_FILE` を用意する。
+### 別ユーザーで ping と評価を分ける場合
+
+`ping` を実行するユーザーと `check` / `watch` を実行するユーザーが異なる (`ping` は app ユーザー、`check` は systemd 専用ユーザーなど) 場合の運用は次の 3 点を揃える。
+
+- 同じ heartbeat file の path を指す `MITSUME_HEARTBEAT_FILE` を両ユーザーに export する。
+- 両ユーザーから同じ heartbeat file を read / write できる permission を用意する (共通 group を作り、file の group ownership と mode 0660 を設定するのが素直である)。
+- heartbeat file を置く directory の書き込み権限を、両ユーザーが属する group に付与する。atomic rename に必要な tmp file の作成に用いる。
 
 動作確認:
 
 ```bash
-# ping で heartbeat file が更新されるか
+# ping で heartbeat file が更新されるかを確認する
 mitsume ping nightly-backup
 cat /var/lib/mitsume/heartbeat.json
 
-# check が失踪を検知するか (heartbeat file を古い時刻に書き換えるか、within を短く一時変更)
+# check が失踪を検知するかを確認する (heartbeat file を古い時刻に書き換えるか、within を短く一時変更する)
 mitsume check --dry-run --config /etc/mitsume/mitsume.json
 ```
 
-## HTTP endpoint / file / container を常駐で見張りたい
+## 常駐監視
 
-`mitsume watch` を systemd unit で常駐させる。外部 cron で叩く `check` より低レイテンシで、`Restart=on-failure` で mitsume 自身の再起動を systemd に任せる。
+`mitsume watch` を systemd unit で常駐させる。外部 cron で呼び出す `check` より低レイテンシで動作し、`Restart=on-failure` により mitsume 自身の再起動を systemd に任せる。
 
-system user と env file を用意する ([getting-started.md](getting-started.md#step-7-watch-で常駐監視する-systemd) の前段と同じ)。
+system user と env file の準備は [getting-started.md](getting-started.md) の該当節を参照する。
 
 config で `http` / `file` / `deadman` を並べる例 (`/etc/mitsume/mitsume.json`):
 
@@ -305,7 +319,7 @@ PrivateTmp=true
 WantedBy=multi-user.target
 ```
 
-`TimeoutStopSec=15s` は SIGTERM 時の best-effort 通知に猶予を残すため。`OnFailure=mitsume-notify@%n.service` で mitsume 自身が起動不能なとき (config 不正 / webhook env 未定義) の通知を、systemd 側から拾う (template unit は [systemd unit の失敗を丸ごと拾いたい](#systemd-unit-の失敗を丸ごと拾いたい) を参照)。
+`TimeoutStopSec=15s` は SIGTERM 受信時の best-effort 通知に猶予を残すため設定する。`OnFailure=mitsume-notify@%n.service` は mitsume 自身が起動不能な場合 (config 不正、Webhook env 未定義など) に systemd 側から通知を送るためのものである (template unit は [systemd unit 失敗の捕捉](#systemd-unit-失敗の捕捉) を参照)。
 
 有効化:
 
@@ -324,26 +338,26 @@ sudo -u mitsume MITSUME_SLACK_WEBHOOK_URL=dummy \
   /usr/local/bin/mitsume watch --dry-run --config /etc/mitsume/mitsume.json
 ```
 
-意図的な failure の作り方: `api.example.com/health` を止める、あるいは `expect.status` を存在しない値 (`999` など) に一時的に書き換えて `mitsume check --config ...` を回す (`check` は 1 回で終わるので confirm burst のテストに向く)。
+意図的に failure を作る方法: `api.example.com/health` を停止する、または `expect.status` を存在しない値 (`999` など) に一時的に変更して `mitsume check --config ...` を実行する。`check` は confirm burst を含めた 1 サイクル分の評価を完走してから exit する。default 設定では 3 回 × 30s = 約 90 秒で burst 全体の動作を観測できる ([architecture.md § Failure confirmation](architecture.md#failure-confirmation) を参照)。
 
-## Docker container の稼働を監視したい
+## Docker container の稼働監視
 
-`container` checker は Docker Engine API の `/containers/<container>/json` を unix socket 経由で直接叩き、`.State.Status == "running"` を評価する。Docker SDK には依存しない。
+`container` checker は Docker / podman container の稼働状態を確認する。評価 logic の詳細は [checkers.md § Container checker](checkers.md#container-checker) を、Docker SDK を使わない理由は [architecture.md § Design decisions](architecture.md#design-decisions) を参照する。
 
-前提として:
+前提条件:
 
-- Docker (or Podman) が host で稼働している
-- Docker socket (`/var/run/docker.sock`) または Podman socket (`$XDG_RUNTIME_DIR/podman/podman.sock`) が読める
-- 監視対象 container と `mitsume watch` は同一 host にある (リモート host の監視は scope 外)
+- Docker または Podman が host で稼働している。
+- Docker socket (`/var/run/docker.sock`) または Podman socket (`$XDG_RUNTIME_DIR/podman/podman.sock`) を読める。
+- 監視対象 container と `mitsume watch` が同一 host にある。リモート host の container 監視は本ツールの対象外である ([Non-goals](architecture.md#non-goals) を参照)。
 
-`mitsume` 実行 user が docker socket を読めるように、group で権限を付与する。
+mitsume の実行ユーザーが Docker socket を読めるように、group で権限を付与する。
 
 ```bash
 sudo usermod -aG docker mitsume
 sudo systemctl restart mitsume.service
 ```
 
-「HTTP endpoint / file / container を...」の config に `container` を並べる。
+[常駐監視](#常駐監視) の config に `container` を並べる。
 
 ```json
 {
@@ -366,9 +380,9 @@ sudo systemctl restart mitsume.service
 }
 ```
 
-`engine` を省略すると docker socket → podman socket の順で自動探索する。socket が起動時に見つからなければ fail-fast で exit 1 する。
+`engine` を省略した場合は Docker socket → Podman socket の順で自動探索する。socket が起動時に見つからない場合は fail-fast で exit 1 とする。
 
-compose 構成の container は、compose の自動命名規則 (`{project}-{service}-{N}`) をそのまま `container` フィールドに書く。
+Docker Compose 構成の container は、Compose の自動命名規則 (`{project}-{service}-{N}`) をそのまま `container` field に指定する。
 
 ```json
 {
@@ -387,22 +401,22 @@ docker stop jellyfin
 mitsume check --config /etc/mitsume/mitsume.json
 ```
 
-`confirm.checks` × `confirm.interval` (default 3 × 30s) の burst を通ってから「`[mitsume] jellyfin failed (container: state=exited, want running=true)`」が届く (状態文字列は engine が返す値そのまま)。復旧通知は仕様として出さない (詳細は [notify.md](notify.md#発火モデル))。
+confirm burst (default 3 × 30s) の完了後に `[mitsume] jellyfin failed (container: state=exited, want running=true)` が Slack に届く。復旧通知は仕様として送信しない。詳細は [notify.md § 通知トリガー](notify.md#通知トリガー) を参照する。
 
 ```bash
 docker start jellyfin
 ```
 
-## mitsume 自身を container 化したい
+## mitsume 自身の container 化
 
-host に mitsume binary を置かず、監視まで container 化するパターン。docker socket を read-only mount して同一 host の container を見る (リモートは変わらず scope 外)。
+host に mitsume の binary を配置せず、監視も container 化するパターンである。Docker socket を read-only mount することで同一 host の container を監視する。
 
 `docker-compose.yml`:
 
 ```yaml
 services:
   mitsume:
-    image: ghcr.io/suecharo/mitsume:v0.1.0
+    image: ghcr.io/suecharo/mitsume:v<VERSION>
     container_name: mitsume-watch
     restart: unless-stopped
     command: ["watch", "--config", "/etc/mitsume/mitsume.json"]
@@ -419,26 +433,27 @@ volumes:
   mitsume-heartbeat:
 ```
 
-mitsume 焼き込み image の Dockerfile:
+`MITSUME_SLACK_WEBHOOK_URL` は host の `.env` から Compose の変数展開で渡す。`.env` は `.gitignore` に追加する。
+
+heartbeat file は named volume (`mitsume-heartbeat`) に配置し、container の再作成でも消えないようにする。
+
+image を自前 registry で管理したい場合は、上記 compose の `image:` を `build: .` に差し替え、以下の Dockerfile を配置する。挙動は `image:` 指定と同等であり、社内 registry への push や CA 証明書の差し替えが必要なとき以外は不要である。
 
 ```dockerfile
 FROM debian:stable-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-COPY --from=ghcr.io/suecharo/mitsume:v0.1.0 /mitsume /usr/local/bin/mitsume
+COPY --from=ghcr.io/suecharo/mitsume:v<VERSION> /mitsume /usr/local/bin/mitsume
 ENTRYPOINT ["/usr/local/bin/mitsume"]
 CMD ["watch", "--config", "/etc/mitsume/mitsume.json"]
 ```
 
-`MITSUME_SLACK_WEBHOOK_URL` は host の `.env` から compose interpolation で渡す。`.env` は `.gitignore` に入れる。
-
-heartbeat file は named volume (`mitsume-heartbeat`) に置いて container 再作成でも消えないようにする。
-
 ## 関連
 
 - [getting-started.md](getting-started.md) — 順を追った初回セットアップ
-- [cli.md](cli.md) — サブコマンドの引数と exit code
-- [configuration.md](configuration.md) — 設定 JSON schema
-- [checkers.md](checkers.md) — 各 checker の判定ロジック
-- [notify.md](notify.md) — Slack payload と発火モデル
+- [cli.md](cli.md) — subcommand の引数と exit code
+- [configuration.md](configuration.md) — 設定 JSON の schema
+- [checkers.md](checkers.md) — 各 checker の判定 logic
+- [notify.md](notify.md) — Slack payload と通知トリガー
 - [heartbeat.md](heartbeat.md) — heartbeat file の schema
+- [architecture.md](architecture.md) — 設計判断と Non-goals の背景
