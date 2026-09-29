@@ -67,7 +67,7 @@ func (r *recordingSender) received() []notify.SlackPayload {
 func newTestNotifier() (*lifecycle.Notifier, *recordingSender) {
 	s := &recordingSender{}
 
-	return &lifecycle.Notifier{Sender: s, Options: notify.Options{Username: "mitsume"}}, s
+	return &lifecycle.Notifier{Sender: s}, s
 }
 
 func discardWriter() *bytes.Buffer { return &bytes.Buffer{} }

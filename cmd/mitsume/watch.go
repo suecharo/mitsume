@@ -42,13 +42,11 @@ func runWatch(parentCtx context.Context, args []string) int {
 		return exitCode
 	}
 
-	// docs/cli.md § watch § 動作 の shutdown announcement は signal 名を text に
-	// 含める。signal 受信の観測点は 1 系統に絞り、signal.Notify チャネルの受信
-	// goroutine 内で cancel() を呼ぶ形にする。signal.NotifyContext を併用すると
-	// signal.Notify の受信 goroutine と NotifyContext 内部の cancel goroutine が
-	// 並行に走り、goroutine の select 評価時点で ctx.Done も ready になると
-	// Go の select 仕様どおり一様ランダムに ctx.Done ブランチが選ばれて signal
-	// 名の capture が抜け落ちる。1 系統にすればその race が構造的に消える。
+	// 停止の通知に signal 名を載せるため、signal を受ける場所を 1 つに絞り、
+	// signal.Notify のチャネルを受ける goroutine の中で cancel() を呼ぶ。
+	// signal.NotifyContext を併用すると、その内部の cancel と並行に走り、select の
+	// 時点で ctx.Done も ready だと一様ランダムに ctx.Done が選ばれて signal 名を
+	// 取りこぼす。
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 	sigCh := make(chan os.Signal, 1)
@@ -68,7 +66,7 @@ func runWatch(parentCtx context.Context, args []string) int {
 			cancel()
 		case <-ctx.Done():
 			// parent ctx cancel での終了。receivedSig は nil のまま fallback
-			// text になる (現状 main.go は background を渡すので通常経路には来ない)。
+			// text になる。
 		}
 	}()
 
@@ -83,9 +81,7 @@ func runWatch(parentCtx context.Context, args []string) int {
 	sigWg.Wait()
 
 	sigName := signalName(receivedSig)
-	// shutdown announcement は best-effort。ctx は既に cancel されているので新規
-	// background ctx を使う。dry-run 時は Notifier.Send が stderr へ payload を
-	// 書き出す (Slack へ POST しない、docs/cli.md § --dry-run)。
+	// 停止の通知は best-effort。ctx は cancel 済みなので background ctx で送る。
 	if err := lifecycle.SendShutdown(context.Background(), r.Notifier, r.Host, sigName, time.Now()); err != nil {
 		fmt.Fprintf(os.Stderr, "mitsume watch: shutdown notify failed: %v\n", err)
 	}
@@ -93,10 +89,9 @@ func runWatch(parentCtx context.Context, args []string) int {
 	return 0
 }
 
-// signalName は shutdown announcement に載せる signal 名を返す。docs/notify.md
-// § Shutdown announcement payload の signal=<name> は SIGTERM / SIGINT の慣用名
-// を指す (Go の Signal.String() は terminated / interrupt を返すため使わない)。
-// nil は parent ctx cancel など signal 由来でない停止の fallback。
+// signalName は停止の通知に載せる signal 名を返す。Go の Signal.String() は
+// terminated / interrupt を返すので、SIGTERM / SIGINT の名前を自前で返す。
+// nil は signal によらない停止 (parent ctx の cancel) のときの値。
 func signalName(sig os.Signal) string {
 	switch sig {
 	case nil:

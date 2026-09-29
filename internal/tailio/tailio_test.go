@@ -167,7 +167,7 @@ func TestTruncate_Property_LinesCapEnforced(t *testing.T) {
 		got := tailio.Truncate(b, maxLines, 0)
 		// bytes.Count は "\n" の数を返すので、末尾に "\n" が無い最終行が
 		// カウントから漏れる。実際の行数は「改行数 + (末尾非改行なら 1)」で
-		// 計算する必要がある (unterminated final line も docs 上は 1 行)。
+		// 計算する必要がある (unterminated final line も 1 行)。
 		nl := bytes.Count(got, []byte{'\n'})
 		realLines := nl
 		if len(got) > 0 && got[len(got)-1] != '\n' {

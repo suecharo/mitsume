@@ -1,6 +1,4 @@
-// Package httpcheck は http checker を実装する。仕様は docs/checkers.md § http
-// checker に従う。expect の 4 演算子 (status / body_contains / body_jsonpath /
-// latency_under) を AND で評価する。
+// Package httpcheck は http checker を実装する。
 package httpcheck
 
 import (
@@ -21,11 +19,10 @@ import (
 	"github.com/suecharo/mitsume/internal/durationx"
 )
 
-// DefaultTimeout は checker.timeout / defaults.timeout が両方未指定のときの
-// 暗黙 default (docs/checkers.md § http checker § 固有の挙動)。
+// DefaultTimeout は checker.timeout / defaults.timeout が両方未指定のときの値。
 const DefaultTimeout = 30 * time.Second
 
-// DefaultMethod は method 未指定時の HTTP method (docs/checkers.md § http)。
+// DefaultMethod は method 未指定時の HTTP method。
 const DefaultMethod = "GET"
 
 // Config は http checker の raw JSON schema。
@@ -202,7 +199,7 @@ func (c *Checker) Name() string { return c.name }
 // Interval は評価周期。
 func (c *Checker) Interval() time.Duration { return c.interval }
 
-// Confirm は失敗確信 burst 設定。
+// Confirm は confirm の設定。
 func (c *Checker) Confirm() confirm.Config { return c.confirmCfg }
 
 // URL は監視対象 URL。テストと外部確認で使う。
@@ -285,8 +282,7 @@ func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 		}
 	}
 	if c.expectLatency > 0 && elapsed >= c.expectLatency {
-		// latency は sub-second が本質なので ms 精度に切り詰めて可読化する
-		// (docs/notify.md § Payload)。
+		// latency は sub-second が本質なので ms 精度に切り詰めて可読化する。
 		elapsedStr := durationx.Format(elapsed.Truncate(time.Millisecond))
 
 		return checker.Failure(

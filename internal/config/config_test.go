@@ -194,6 +194,26 @@ func TestLoad_UnknownTopLevelFieldIsError(t *testing.T) {
 	}
 }
 
+func TestLoad_NotifyDisplayFieldsAreUnknown(t *testing.T) {
+	t.Setenv("TEST_WEBHOOK", "x")
+	for _, field := range []string{"username", "icon_emoji", "icon_url"} {
+		t.Run(field, func(t *testing.T) {
+			dir := t.TempDir()
+			p := writeFile(t, dir, "mitsume.json", `{
+  "notify": { "webhook_url_env": "TEST_WEBHOOK", "`+field+`": "x" },
+  "checks": []
+}`)
+			_, err := config.Load(p)
+			if err == nil {
+				t.Fatalf("expected error for notify.%s", field)
+			}
+			if !strings.Contains(err.Error(), field) {
+				t.Fatalf("error should name the field %q: %v", field, err)
+			}
+		})
+	}
+}
+
 func TestLoad_DefaultsDurationParses(t *testing.T) {
 	t.Setenv("TEST_WEBHOOK", "x")
 	dir := t.TempDir()

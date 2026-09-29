@@ -131,7 +131,7 @@ func (s *fakeSleeper) callDurations() []time.Duration {
 func newTestNotifier() (*lifecycle.Notifier, *recordingSender) {
 	s := &recordingSender{}
 
-	return &lifecycle.Notifier{Sender: s, Options: notify.Options{Username: "mitsume"}}, s
+	return &lifecycle.Notifier{Sender: s}, s
 }
 
 func failure(err, obs, exp string) checker.Result {
@@ -279,7 +279,7 @@ func TestRunOnce_AllCheckersRunInParallel(t *testing.T) {
 	}
 }
 
-// -------- RunOnce burst --------
+// -------- RunOnce confirm の再確認 --------
 
 func TestRunOnce_BurstAllFailAlertsWithLastResult(t *testing.T) {
 	t.Parallel()
@@ -499,8 +499,8 @@ func TestRunOnce_NonContainerCheckerNoDeadlineInjected(t *testing.T) {
 // -------- deadman snapshot --------
 
 func TestRunOnce_DeadmanSnapshotFixedAcrossBurst(t *testing.T) {
-	// burst 内は snapshot 固定 (docs/heartbeat.md § 読み込みモデル)。
-	// 初期 file は stale (failure 検知) → burst 内で file を fresh に書き換えても
+	// confirm の再確認の間は snapshot 固定。
+	// 初期 file は stale (failure 検知) → 再確認の間に file を fresh に書き換えても
 	// snapshot 固定なら 3 回全 failure → alert。
 	dir := t.TempDir()
 	hbFile := filepath.Join(dir, "hb.json")
@@ -535,8 +535,8 @@ func TestRunOnce_DeadmanSnapshotFixedAcrossBurst(t *testing.T) {
 }
 
 func TestRunLoop_DeadmanSnapshotRefreshedNextCycle(t *testing.T) {
-	// 1 サイクル目: stale → burst 全滅 → alert 1 通
-	//   sleep calls: n=1..2 は burst.Interval=1ms、n=3 は interval sleep=1h
+	// 1 サイクル目: stale → 再確認も全滅 → alert 1 通
+	//   sleep calls: n=1..2 は confirm.interval=1ms、n=3 は interval sleep=1h
 	// interval sleep (n=3) で heartbeat file を fresh に書き換え
 	// 2 サイクル目: refreshDeadmanSnapshot が fresh を load → evaluate 1 回で success → no alert
 	// 3 サイクル目に入る sleep (n=4) で cancel

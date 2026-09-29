@@ -106,9 +106,8 @@ func TestIntegrationRun_QuietOnSuccessSuppressesNotify(t *testing.T) {
 }
 
 func TestIntegrationRun_MissingCommandExits1(t *testing.T) {
-	// docs/cli.md § run § 引数: `--` の後の <cmd> は必須。以下 3 パターンとも
-	// exit 1 で failing する: (1) `run` 単独、(2) `run --` (separator のみ)、
-	// (3) `run --name x` (flag のみで separator も cmd も無い)。
+	// `--` の後の <cmd> は必須。次の 3 つはどれも exit 1 になる: `run` 単独、
+	// `run --` (separator だけ)、`run --name x` (flag だけで separator も cmd も無い)。
 	cases := []struct {
 		name string
 		args []string

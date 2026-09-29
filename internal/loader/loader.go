@@ -21,13 +21,13 @@ import (
 // Options は BuildCheckers に渡す実行時情報。
 type Options struct {
 	// HeartbeatFile は deadman checker が read する heartbeat file の絶対パス。
-	// deadman を含む config なら必須 (docs/heartbeat.md § 場所)。
+	// deadman を含む config なら必須。
 	HeartbeatFile string
 	// ClockNow は現在時刻 provider。nil なら time.Now。test 用注入。
 	ClockNow func() time.Time
 	// ContainerSocketPath は container checker が使う engine socket path を
-	// 明示的に指定する経路。空なら container package の default resolver
-	// (docs/checkers.md § container checker § 固有の挙動 の探索順) が回る。
+	// 明示的に指定する経路。空なら container package の default resolver が
+	// socket を探索する。
 	// test で net.Listen("unix", ...) の fake socket を差し込む用途。
 	ContainerSocketPath string
 }

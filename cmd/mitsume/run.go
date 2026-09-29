@@ -74,7 +74,7 @@ func runRun(ctx context.Context, args []string) int {
 
 		return 1
 	}
-	notifier := newNotifier(url, cfg, *dryRun)
+	notifier := newNotifier(url, *dryRun)
 
 	return supervisor.Run(ctx, supervisor.Config{
 		Name:              *name,

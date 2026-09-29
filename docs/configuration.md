@@ -1,262 +1,159 @@
-# Configuration
+# 設定 JSON
 
-mitsume の挙動は設定 JSON、CLI 引数、環境変数の 3 者で決まる。本 doc は設定 JSON の schema、mitsume が設定 JSON をどう探すか、秘密情報をどう受け取るかを定義する。用語の定義は [architecture.md § 用語](architecture.md#用語) を参照する。
+`check` と `watch` が読む設定ファイルの書き方をまとめる。checker の種類ごとの field は [checkers.md](checkers.md) にある。
 
-`mitsume check` と `mitsume watch` は設定 JSON を必須とする。`mitsume ping` / `mitsume notify` / `mitsume run` は設定 JSON なしでも動作し、設定 JSON が探索順で見つかった場合は次の値のみを利用する。
-
-- `mitsume notify` / `mitsume run` — `notify` section (Slack Webhook の接続情報)
-- `mitsume ping` — `heartbeat_file` field と、`deadman` checker が 1 個だけ定義されている場合の `<job>` fallback ([cli.md § 識別子解決](cli.md#識別子解決) を参照)
-
-## 最小サンプル
-
-HTTP checker 1 個と Slack 通知先で構成される、動く最小の設定 JSON である。
+## 最小の例
 
 ```json
 {
-  "notify": {
-    "webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL"
-  },
+  "notify": { "webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL" },
   "checks": [
     {
       "type": "http",
-      "name": "api-health",
       "url": "https://api.example.com/health",
-      "expect": { "status": 200 },
-      "interval": "1h"
+      "interval": "1h",
+      "expect": { "status": 200 }
     }
   ]
 }
 ```
 
-これを `./mitsume.json` に置いて次のように起動する。
+これを `mitsume.json` という名前でカレントディレクトリに置き、`MITSUME_SLACK_WEBHOOK_URL` に Webhook URL を入れて `mitsume watch` を起動すると、1 時間ごとに URL を呼び、200 以外が返れば Slack に通知する。
+
+## 設定 JSON の探し方
+
+次の順に探し、最初に見つかった 1 つだけを読む。複数を合わせて読むことはしない。
+
+1. `--config <path>`
+2. 環境変数 `MITSUME_CONFIG`
+3. カレントディレクトリの `mitsume.json`
+
+1 と 2 で指定した path にファイルが無ければエラーになる。3 は無くてもエラーにならない。`~/.config/` や `/etc/` などは探さないので、どの設定が使われるかは呼び出し方だけで決まる。
+
+`check` と `watch` は設定 JSON が無いと動かない。`notify` / `run` / `ping` は無くても動き、見つかったときは次の値だけを使う。
+
+| subcommand | 使う値 |
+|---|---|
+| `notify` | `notify.webhook_url_env` |
+| `run` | `notify.webhook_url_env`、`host` |
+| `ping` | `heartbeat_file`、`<job>` を省略したときの `deadman` の `job` |
+
+このとき中身の検査 (下の「起動時の検査」) はしない。JSON として読めて、トップレベルに知らない field が無ければよい。
+
+## トップレベル
+
+| field | 省略したとき | 説明 |
+|---|---|---|
+| `notify.webhook_url_env` | `check` / `watch` は起動時にエラー | Slack Incoming Webhook の URL を入れた環境変数の名前 ([秘密情報の渡し方](#秘密情報の渡し方)) |
+| `checks` | 何も監視しない | 監視する check の配列 |
+| `defaults.interval` | 各 check で指定する | 全 check の `interval` の既定値 |
+| `defaults.timeout` | 各 check で指定する | `http` と `cmd` の `timeout` の既定値 |
+| `host` | OS の hostname | 通知に載せる host 名 |
+| `heartbeat_file` | 設定 JSON の隣のファイル | heartbeat file の path ([決まり方](heartbeat.md#場所の決まり方))。相対 path はカレントディレクトリからの path になるので、絶対 path で書く |
+
+知らない field があるとエラーになる。書き間違いに起動時に気づけるようにするためである。
+
+## check に共通の field
+
+`checks[]` の各要素は `type` で checker の種類を選ぶ。次の field はどの種類でも使える。
+
+| field | 省略したとき | 説明 |
+|---|---|---|
+| `type` | 省略できない | `http` / `deadman` / `file` / `container` / `cmd` |
+| `name` | 種類ごとに決まる (下の表) | 通知に載る名前。`checks[]` の中で重複できない (自動で付いた名前も含む) |
+| `interval` | `defaults.interval`。どちらも無ければエラー | `watch` が評価する間隔。`check` は使わない |
+| `expect` | 種類ごとに決まる ([checkers.md](checkers.md)) | 成功とする条件。複数の条件を書くと、すべてを満たしたときに成功になる |
+| `confirm` | [下の節](#confirm) の既定値 | 失敗したときの再確認 |
+| `timeout` | `defaults.timeout`。どちらも無ければ 30s | `http` と `cmd` だけが持つ。1 回の評価にかける時間の上限 |
+
+`name` を省略したときは次の値になる。
+
+| `type` | `name` |
+|---|---|
+| `http` | `url` |
+| `deadman` | `job` |
+| `file` | `path` か `path_glob` |
+| `container` | `container` |
+| `cmd` | `command` を空白でつないだものの先頭 32 文字 |
+
+失敗が続く間は `interval` ごとに通知が届くので、`interval` は通知の頻度でもある。1 時間程度を目安にし、短くしすぎない。
+
+## confirm
+
+1 回の失敗ですぐに通知すると、一時的なネットワークの揺れでも通知が届いてしまう。そこで、失敗したら短い間隔で評価をやり直し、失敗が続いたときだけ通知する。これを `confirm` で設定する。
+
+| field | 省略したとき | 説明 |
+|---|---|---|
+| `confirm.checks` | `3` | 通知するまでに続けて失敗する回数。最初の失敗を含む。1 以上 |
+| `confirm.interval` | `30s` | やり直すまでの間隔 |
+
+`"confirm": false` と書くと、やり直さずに最初の失敗で通知する。
+
+`interval` が 1h で `confirm` が既定値のとき、`watch` は次のように動く。
+
+```text
+10:00:00  失敗    やり直しに入る
+10:00:30  失敗
+10:01:00  失敗    3 回続けて失敗したので通知する。通知には最後の評価の結果を載せる
+11:01:00  失敗    評価が終わってから 1h 後に次の評価。また失敗したのでやり直しに入る
+```
+
+途中で成功すれば通知しない。
+
+```text
+10:00:00  失敗    やり直しに入る
+10:00:30  成功    通知しない
+11:00:30  成功
+```
+
+`interval` ごとの評価で「N 回続けて失敗したら通知する」と数えると、失敗に気づくまで N × `interval` かかる。かといって `interval` を短くすると、失敗が続く間の通知が増える。通知の頻度 (`interval`) と、失敗を確かめる速さ (`confirm.interval`) を別々に持つのはこのためである。
+
+## 値の書き方
+
+### duration
+
+`30s`、`5m`、`1h`、`1d` のように数と単位を並べて書く。`1h30m` や `2d12h` のように組み合わせることも、`1.5h` のように小数で書くこともできる。
+
+| 単位 | 意味 |
+|---|---|
+| `ns` / `us` (`µs`) / `ms` | ナノ秒 / マイクロ秒 / ミリ秒 |
+| `s` / `m` / `h` | 秒 / 分 / 時 |
+| `d` | 日 (24h) |
+
+週 (`w`) と ISO 8601 の書き方 (`PT30S`) は使えない。
+
+### size
+
+`file` checker の `expect.size_min` / `expect.size_max` で使う。`B` / `KB` / `MB` / `GB` / `TB` を付けた整数の文字列か、byte 数の整数で書く。単位は 1024 倍ずつで (`100MB` は 100 × 1024 × 1024 byte)、大文字だけを受け付ける。
+
+## 秘密情報の渡し方
+
+Slack の Webhook URL は、知っていれば誰でも投稿できる秘密情報なので、CLI の引数にも設定 JSON にも値を書かない ([architecture.md](architecture.md#セキュリティ上の制約))。値は環境変数に入れ、mitsume にはその環境変数の名前を渡す。
+
+どの環境変数を読むかは次の順で決まる。
+
+1. `--slack-webhook-url-env <name>` (`notify` と `run` だけ)
+2. 設定 JSON の `notify.webhook_url_env` (`check` と `watch` では必須)
+3. `MITSUME_SLACK_WEBHOOK_URL`
 
 ```bash
-export MITSUME_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
-mitsume watch
+# 3 の既定の名前を使う
+export MITSUME_SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
+mitsume notify "hello"
+
+# 別の名前の環境変数を使う
+export SLACK_OPS_WEBHOOK='https://hooks.slack.com/services/...'
+mitsume notify --slack-webhook-url-env SLACK_OPS_WEBHOOK "hello"
 ```
 
-`deadman` checker を追加する場合は `heartbeat_file` を明示するか、config と同じ directory の隣接 file (basename の `.json` を `.heartbeat.json` に置換した path、例: `production.json` → `production.heartbeat.json`) を使う。詳細は [heartbeat.md § File location](heartbeat.md#file-location) を参照する。
+環境変数が無いか空なら、何も送らずに exit 1 になる。`--dry-run` でも同じなので、試すときは `dummy` などを入れておく。環境変数は起動したときに読むので、起動したあとに値を変えても反映されない。
 
-```json
-{
-  "notify": { "webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL" },
-  "defaults": { "interval": "1h" },
-  "checks": [
-    { "type": "http", "name": "api-health",
-      "url": "https://api.example.com/health",
-      "expect": { "status": 200 } },
-    { "type": "deadman", "job": "nightly-backup",
-      "expect": { "within": "25h" } }
-  ]
-}
-```
+## 起動時の検査
 
-## 設定 JSON の場所
+`check` と `watch` は評価を始める前に設定 JSON 全体を検査し、1 つでも問題があれば何も評価せずに exit 1 する。エラーメッセージには `checks[2]: ...` のように問題の場所が出る。検査するのは次のようなことである。
 
-`mitsume check` と `mitsume watch` は次の順で最初に見つかった 1 個を読む。複数が見つかっても merge しない。
-
-1. `--config <path>` (明示指定)
-2. `$MITSUME_CONFIG` (環境変数)
-3. `./mitsume.json` (カレント directory、自動探索)
-
-自動探索の対象は `./mitsume.json` のみである。`~/.config/mitsume/` や `/etc/mitsume/` のような暗黙 path は参照しない。どの設定 JSON が有効かは呼び出しコンテキストから一意に決まる。
-
-## トップレベルフィールド
-
-設定 JSON の top-level はこの形である。`checks[]` に監視対象を 1 本の list で並べ、active checker と `deadman` checker を混在できる。
-
-```json
-{
-  "host": "api-prod-01",
-  "heartbeat_file": "/var/lib/mitsume/heartbeat.json",
-  "notify": {
-    "webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL"
-  },
-  "defaults": {
-    "interval": "1h",
-    "timeout": "10s"
-  },
-  "checks": [
-    { "type": "http", "name": "api-health", "url": "https://api.example.com/health",
-      "expect": { "status": 200 } },
-    { "type": "deadman", "job": "nightly-backup",
-      "expect": { "within": "25h" } }
-  ]
-}
-```
-
-`notify` は単一 object である。named map、配列指定、check ごとの notifier 振り分けは持たない。理由は [architecture.md § Design decisions](architecture.md#design-decisions) を参照する。
-
-| Field | 必須 | 型 | 説明 |
-|---|---|---|---|
-| `checks` | Yes | array | 監視対象の list。要素は `type` field で checker 種別を指定する。 |
-| `notify` | Yes | object | Slack 通知先の接続情報。 |
-| `host` | No | string | 通知メッセージに載せる host 識別子。省略時の解決順は [Host identifier](#host-identifier) を参照する。 |
-| `heartbeat_file` | No | string | heartbeat file の絶対 path。CLI (`--heartbeat-file`) と `$MITSUME_HEARTBEAT_FILE` が上書きする。両者省略時は本 field を使い、それも省略時は config と同じ directory の隣接 file (basename の `.json` を `.heartbeat.json` に置換した path) を使う。詳細は [heartbeat.md § File location](heartbeat.md#file-location) を参照する。 |
-| `defaults` | No | object | 全 check に適用する共通 default 値。 |
-
-### `checks[]` common fields
-
-各要素は `type` に応じて必須 / 任意 field が変わる。全 checker で共通の field はこの 5 つである。
-
-| Field | 必須 | 型 | 説明 |
-|---|---|---|---|
-| `type` | Yes | string | `http` / `deadman` / `file` / `container` / `cmd` のいずれか。 |
-| `name` | No | string | 通知文の表示ラベル。省略時は `type` 別ルールで自動生成する。 |
-| `interval` | Yes (defaults 継承可) | duration | 評価周期。`watch` で使用する。`check` では無視する。`deadman` checker における `interval` の意味は [checkers.md § Deadman checker](checkers.md#deadman-checker) を参照する。 |
-| `expect` | Yes | object | 成功条件を宣言的に書く。field は `type` ごとに異なる。詳細は [checkers.md](checkers.md) を参照する。 |
-| `confirm` | No | object または `false` | 連続確認 (confirm burst) の設定。詳細は [`confirm`](#confirm) を参照する。 |
-
-`name` は自動生成後を含めて `checks[]` 内で一意でなければならない。重複は起動時 validation でエラーとする。
-
-`type: "deadman"` は追加で `job` field を必須とする。`job` は `[a-zA-Z0-9_-]{1,64}` に従い、`checks[]` 内で一意である必要がある。
-
-checker 固有の field は [checkers.md](checkers.md) にまとめる。
-
-### `defaults`
-
-| Field | 必須 | 型 | 説明 |
-|---|---|---|---|
-| `interval` | No | duration | 全 check の `interval` の初期値。 |
-| `timeout` | No | duration | HTTP / cmd checker の request / command timeout の初期値。 |
-
-各 check の同名 field で上書きする。`defaults.notify` は持たない。`notify` field は check ごとに切り替えられない単一 object であり、上書き対象が存在しないため defaults を持つ意味がない (理由は [architecture.md § Design decisions](architecture.md#design-decisions) を参照)。
-
-### `confirm`
-
-failure 検知後に短い間隔で連続確認する一連の動作を confirm burst と呼ぶ。合計評価回数は `confirm.checks` である。うち 1 回目は通常サイクルでの初回 failure 検知、残り `confirm.checks - 1` 回が `confirm.interval` 間隔での追加確認となる。全評価が failure だった場合に failure を確定する。時間スケールを 2 種類 (通常 `interval` と `confirm.interval`) に分ける設計上の理由は [architecture.md § Failure confirmation](architecture.md#failure-confirmation) を参照する。
-
-| Field | 必須 | 型 | Default | 説明 |
-|---|---|---|---|---|
-| `checks` | No | int (>= 1) | `3` | 合計評価回数。初回 failure 検知を含む。 |
-| `interval` | No | duration | `30s` | 追加確認の間隔。 |
-
-`confirm` を省略した場合は上記 default (3 回 × 30s) を適用する。特殊値と部分指定の例を次に示す。
-
-```json
-{ "type": "http", "url": "...", "interval": "1m", "confirm": false }
-```
-
-`confirm: false` を指定した場合は confirm burst を実行せず、1 回目の failure で即通知を送信する (one-strike out)。
-
-```json
-{ "type": "http", "url": "...", "interval": "5m", "confirm": { "checks": 5 } }
-```
-
-`checks` のみを指定した場合、`confirm.interval` は default (`30s`) を維持する。
-
-confirm burst の動作は次の通りである。
-
-1. 通常時は `interval` ごとに評価する。
-2. failure を検知したら `confirm.interval` に切り替え、`confirm.checks - 1` 回まで連続確認する。
-3. 全部 failure の場合は alert を送信する。
-4. 途中で成功した場合は状態を reset し、通常 `interval` に戻る。
-
-`confirm.checks` に `0` 以下を指定した場合、および `confirm.interval` の parse 失敗は起動時 validation でエラーとする。
-
-## 値の型
-
-### Duration
-
-duration 文字列は次の単位を組み合わせた表記である。`d` 以外は Go 標準の duration 書式に準拠し、`d` (日) は mitsume の spec 拡張である。
-
-| 単位 | 例 |
-|---|---|
-| ナノ秒 | `500ns` |
-| マイクロ秒 | `500us` (`500µs` も許容) |
-| ミリ秒 | `500ms` |
-| 秒 | `30s` |
-| 分 | `5m` |
-| 時 | `1h`、`24h` |
-| 日 | `3d`、`1d1h` (時単位との混在可) |
-
-複合表記 (`1h30m`、`2d12h`) は許容する。`w` (週) と ISO 8601 (`PT30S`、`P1D`) は許容しない。
-
-duration を受け取る field:
-
-- `checks[].interval`
-- `checks[].timeout`
-- `checks[].confirm.interval`
-- `checks[].expect.within` (`deadman`)
-- `checks[].expect.mtime_within` (`file`)
-- `checks[].expect.latency_under` (`http`)
-- `defaults.interval`、`defaults.timeout`
-
-parse 失敗は起動時 validation でエラーとする。
-
-### Size
-
-size 文字列は 1024 base の human-readable 表記である。整数 byte の直書きも許容する。
-
-| 表記 | 意味 |
-|---|---|
-| `100B` | 100 byte |
-| `512KB` | 512 × 1024 byte |
-| `100MB` | 100 × 1024^2 byte |
-| `10GB` | 10 × 1024^3 byte |
-| `1TB` | 1 × 1024^4 byte |
-| `1` | 1 byte (整数直書き) |
-
-`file` checker の `expect.size_min` / `expect.size_max` で使用する。
-
-## 秘密情報
-
-Slack Incoming Webhook URL などの秘密情報を CLI 引数の値として直接渡す方式は用意しない。渡し方は次の 3 通りに限る。
-
-1. **JSON の `_env` サフィックス.** field 名末尾を `_env` にし、環境変数名を値に書く。
-
-   ```json
-   { "notify": { "webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL" } }
-   ```
-
-2. **CLI の `--*-env` フラグ.** フラグ名末尾を `-env` にし、環境変数名を渡す。
-
-   ```bash
-   mitsume notify --slack-webhook-url-env MITSUME_SLACK_WEBHOOK_URL "hello"
-   ```
-
-3. **既知名 env の export.** 既知名 (現在は `MITSUME_SLACK_WEBHOOK_URL` のみ) を環境変数として export しておくと、CLI 引数と JSON field を両方省略しても値を取得する。他の `MITSUME_*` env (例: `MITSUME_HOST`、`MITSUME_HEARTBEAT_FILE`、`MITSUME_CONFIG`、`MITSUME_JOB`) は秘密情報用途ではなく、fallback 対象や設定 path の指定に用いる ([cli.md § 環境変数](cli.md#環境変数) を参照)。
-
-   ```bash
-   export MITSUME_SLACK_WEBHOOK_URL=https://hooks.slack.com/...
-   mitsume notify "hello"
-   ```
-
-`--slack-webhook-url https://...` のような値直渡し flag は提供しない。理由は [architecture.md § Security invariants](architecture.md#security-invariants) を参照する。
-
-`_env` / `--*-env` で指定した環境変数が起動時点で未定義の場合、起動時 validation で fail-fast する。process 起動時点の env を snapshot して使用するため、起動後の env 変更 (`watch` の走行中に対話 shell で `export` を再定義するなど) は反映しない。
-
-## Host identifier
-
-通知メッセージに載せる `host` field は次の順で解決する。
-
-1. 設定 JSON の `host` field
-2. `MITSUME_HOST` 環境変数
-3. OS が返す hostname
-
-Docker container ごとに識別子を差し替える設定例は [recipes.md](recipes.md) を参照する。
-
-複数の host から同じ check の failure 通知が並ぶ場合の grouping は行わない。各 host は独立して通知する。
-
-## Validation
-
-起動時 validation は次の条件で fail-fast する。
-
-- `name` の重複 (`checks[]` 内)
-- `job` の重複 (`checks[]` 内)、および `job` の regex 違反 (`[a-zA-Z0-9_-]{1,64}` に一致しない)
-- `confirm.checks` が `0` 以下
-- `confirm.interval` の duration parse 失敗
-- `interval` / `timeout` / `expect.within` などの duration field の parse 失敗
-- `expect.size_min` / `expect.size_max` の size 表記 parse 失敗
-- `_env` / `--*-env` で指定した環境変数が未定義
-- checker 別の必須 field 欠落 (詳細は [checkers.md](checkers.md))
-
-`watch` の実行中に設定 JSON を再読み込みしないため、設定を変更した場合は process supervisor から `watch` を再起動する。理由は [architecture.md § Design decisions](architecture.md#design-decisions) を参照する。
-
-## 関連
-
-- [checkers.md](checkers.md) — checker 別 field と評価 logic
-- [notify.md](notify.md) — Slack payload と delivery retry
-- [heartbeat.md](heartbeat.md) — heartbeat file の schema と path 解決
-- [cli.md](cli.md) — subcommand と共通 flag
-- [architecture.md](architecture.md) — core components、failure confirmation、design decisions の背景
+- JSON として読めるか、知らない field が無いか
+- 必須の field があるか、duration や size が読めるか、値が範囲の中にあるか
+- `name` と `job` が `checks[]` の中で重複していないか
+- `notify.webhook_url_env` の環境変数があるか
+- `container` checker の socket が見つかるか

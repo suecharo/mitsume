@@ -7,8 +7,7 @@ import (
 	"runtime"
 )
 
-// release build 時に goreleaser の ldflags で上書きされる。source build では
-// default 値のまま (docs/cli.md § mitsume version § 動作)。
+// release build 時に goreleaser の ldflags で上書きされる。
 var (
 	version = "dev"
 	commit  = "none"

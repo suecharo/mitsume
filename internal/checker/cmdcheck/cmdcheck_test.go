@@ -129,8 +129,7 @@ func TestParse_NameAutoTruncateAt32(t *testing.T) {
 func TestParse_NameAutoTruncateRuneSafe(t *testing.T) {
 	t.Parallel()
 	// 日本語 command で byte 32 は multi-byte UTF-8 の境界に落ちるため、byte 切り
-	// だと invalid UTF-8 になり docs の「先頭 32 文字」の数的解釈からもズレる。
-	// 実装は rune 単位で 32 char 切り出すべき (docs/checkers.md § name の自動生成)。
+	// だと invalid UTF-8 になる。実装は rune 単位で 32 char 切り出すべき。
 	// joined = "echo <日本語>" で 32 rune を超えるように 2 回並べる
 	raw := json.RawMessage(`{"type": "cmd", "command": ["echo", "こんにちは世界です今日はいい天気ですねこんにちは世界です今日はいい天気ですね"], "interval": "1h", "expect": {}}`)
 	c, err := Parse(raw, Options{})

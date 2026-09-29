@@ -284,8 +284,7 @@ func TestEvaluate_ElapsedBelowWithin(t *testing.T) {
 
 func TestEvaluate_ElapsedExactlyWithinBoundary(t *testing.T) {
 	t.Parallel()
-	// docs: 「now - last_ping_at >= expect.within」なら failure。
-	// つまり elapsed == within は failure。
+	// now - last_ping_at >= expect.within なら failure。つまり elapsed == within は failure。
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	past := now.Add(-25 * time.Hour)
 	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": past})
@@ -318,8 +317,8 @@ func TestEvaluate_ElapsedAboveWithin(t *testing.T) {
 
 func TestEvaluate_FailureFormatsDurationsHumanReadable(t *testing.T) {
 	t.Parallel()
-	// docs/notify.md § Payload: observed は last_ping=25h12m ago のような
-	// 可読形式。sub-second の生値 (15.043201262s) を載せない。
+	// observed は last_ping=25h12m ago のような形で、sub-second の生値
+	// (15.043201262s) を載せない。
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	past := now.Add(-(15*time.Second + 43201262*time.Nanosecond))
 	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": past})
@@ -342,7 +341,7 @@ func TestEvaluate_FailureFormatsDurationsHumanReadable(t *testing.T) {
 
 func TestEvaluate_ExpectedTrimsZeroUnits(t *testing.T) {
 	t.Parallel()
-	// within=1h を 1h0m0s の Go 生表記ではなく 1h と載せる (docs/notify.md § Payload)。
+	// within=1h を 1h0m0s の Go 生表記ではなく 1h と載せる。
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	past := now.Add(-(2*time.Hour + 123*time.Millisecond))
 	hbFile := setupHeartbeatFile(t, map[string]time.Time{"backup": past})

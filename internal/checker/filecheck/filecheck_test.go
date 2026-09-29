@@ -333,7 +333,7 @@ func TestEvaluate_PermissionDeniedIsFailure(t *testing.T) {
 	}
 	dir := t.TempDir()
 	// 親ディレクトリを 0000 にすると子 file の stat が EACCES で失敗する
-	// (docs/checkers.md § file § 固有の挙動: stat 失敗は failure)。
+	// (stat 失敗は failure)。
 	parent := filepath.Join(dir, "locked")
 	if err := os.Mkdir(parent, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -404,7 +404,7 @@ func TestEvaluate_MultipleConditionsANDFalse(t *testing.T) {
 
 func TestEvaluate_MtimeFailureFormatsDurationsHumanReadable(t *testing.T) {
 	t.Parallel()
-	// docs/notify.md § Payload: observed は mtime=26h ago のような可読形式。
+	// observed は mtime=26h ago のような可読形式。
 	// sub-second の生値を載せず、text と observed は同一の観測値を共有する。
 	// clock を呼び出しごとに進め、観測を 2 回取ると text と observed が食い違う
 	// 状態を再現できるようにする。

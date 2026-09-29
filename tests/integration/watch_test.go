@@ -43,10 +43,9 @@ func TestIntegrationWatch_SigTermSendsShutdownAnnouncement(t *testing.T) {
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("watch should exit 0 on SIGTERM, got %v\nstderr: %s", err, stderr.String())
 	}
-	// shutdown announcement 1 通が届いていることを確認 (docs/cli.md § watch § 動作)。
-	// signal 名も text に含まれる (docs/notify.md § Shutdown announcement payload の
-	// 慣用名 SIGTERM)。この 2 つを両方 assert することで signal 名 capture 経路の
-	// regression も検出する。
+	// 停止の通知が 1 通届き、signal 名 (SIGTERM) が text に含まれる
+	// ことを確認する。両方 assert することで signal 名 capture 経路の取りこぼしも
+	// 検出する。
 	calls := received()
 	if len(calls) < 1 {
 		t.Fatalf("expected at least 1 shutdown announcement, got %d\nstderr: %s", len(calls), stderr.String())

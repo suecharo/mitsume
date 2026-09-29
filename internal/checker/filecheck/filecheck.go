@@ -1,5 +1,4 @@
-// Package filecheck は file checker を実装する。仕様は docs/checkers.md § file
-// checker と docs/configuration.md § size 表記 に従う。
+// Package filecheck は file checker を実装する。
 package filecheck
 
 import (
@@ -32,8 +31,7 @@ type Config struct {
 	Expect   Expect          `json:"expect"`
 }
 
-// Expect は file checker の判定条件 (docs/checkers.md § file § expect)。
-// 全 field optional で複数併用可、AND で評価する (共通契約)。
+// Expect は file checker の判定条件。全 field optional で、指定した条件を AND で評価する。
 type Expect struct {
 	Exists      *bool           `json:"exists,omitempty"`
 	MtimeWithin config.Duration `json:"mtime_within,omitempty"`
@@ -47,8 +45,7 @@ type SizeValue struct {
 	set   bool
 }
 
-// UnmarshalJSON は string 表記と integer 直書きの両方を受ける
-// (docs/configuration.md § size 表記)。
+// UnmarshalJSON は string 表記と integer 直書きの両方を受ける。
 func (s *SizeValue) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		return nil
@@ -197,7 +194,7 @@ func (c *Checker) Name() string { return c.name }
 // Interval は評価周期。
 func (c *Checker) Interval() time.Duration { return c.interval }
 
-// Confirm は失敗確信 burst 設定。
+// Confirm は confirm の設定。
 func (c *Checker) Confirm() confirm.Config { return c.confirmCfg }
 
 // Path は監視対象 path。path_glob 版なら空。
@@ -300,8 +297,7 @@ func (c *Checker) evaluateAttributes(target string, info os.FileInfo) checker.Re
 		)
 	}
 	// mtime の経過時間は 1 度だけ観測し、text と observed の値を一致させる。
-	// 通知には秒精度で十分なので sub-second を落とす (docs/notify.md § Payload の
-	// mtime=26h ago 形式)。
+	// 通知には秒精度で十分なので sub-second を落とす。
 	var elapsed time.Duration
 	if c.mtimeWithin > 0 {
 		elapsed = c.clockNow().Sub(info.ModTime())

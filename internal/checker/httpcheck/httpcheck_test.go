@@ -556,7 +556,7 @@ func TestEvaluate_TLSVerificationRejectsSelfSigned(t *testing.T) {
 
 func TestEvaluate_LatencyFailureFormatsDurationsHumanReadable(t *testing.T) {
 	t.Parallel()
-	// docs/notify.md § Payload: duration は可読形式で載せる。latency は
+	// duration は可読形式で載せる。latency は
 	// sub-second が本質なので ms 精度に切り詰め、ns の生値を出さない。
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

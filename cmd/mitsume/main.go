@@ -1,4 +1,4 @@
-// Command mitsume は死活監視 CLI の entry point。実仕様は docs/cli.md に従う。
+// Command mitsume は死活監視 CLI の entry point。
 package main
 
 import (
@@ -54,15 +54,13 @@ func run(args []string) int {
 	case "check":
 		return runCheck(ctx, subArgs)
 	case "watch":
-		// watch は自身の signal.NotifyContext で SIGINT/SIGTERM を受けて
-		// graceful shutdown する (docs/cli.md § watch § 動作)。main で作った
-		// ctx を渡すと signal 受信のセマンティクスが二重になるので background を
-		// 渡し、handler 内で signal 監視を組み立てる。
+		// watch は signal.Notify の受信 goroutine で SIGINT/SIGTERM を受けて
+		// graceful shutdown する。main の ctx を渡すと signal 受信が二重になるので
+		// background を渡す。
 		return runWatch(context.Background(), subArgs)
 	case "run":
-		// run は supervisor の signal forward が SIGINT/SIGTERM/HUP/QUIT を
-		// 子に転送する (docs/cli.md § run § 動作)。main の ctx cancel と
-		// 転送の二重発火を避けるため background を渡す。
+		// run は supervisor が SIGINT/SIGTERM/HUP/QUIT を子に転送する。
+		// main の ctx cancel と転送の二重発火を避けるため background を渡す。
 		return runRun(context.Background(), subArgs)
 	case "version":
 		return runVersion(subArgs)

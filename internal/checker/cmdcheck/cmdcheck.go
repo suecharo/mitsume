@@ -1,5 +1,5 @@
 // Package cmdcheck は cmd checker (任意の外部コマンドの exit code 判定 escape
-// hatch) を実装する。仕様は docs/checkers.md § cmd checker に従う。
+// hatch) を実装する。
 package cmdcheck
 
 import (
@@ -22,16 +22,15 @@ import (
 	"github.com/suecharo/mitsume/internal/tailio"
 )
 
-// GracePeriod は timeout 超過後 SIGTERM を送ってから SIGKILL までの猶予
-// (docs/checkers.md § cmd checker § 固有の挙動、run --grace-period default と揃える)。
+// GracePeriod は timeout 超過後 SIGTERM を送ってから SIGKILL までの猶予。
 const GracePeriod = 5 * time.Second
 
 // TimeoutExitCode は timeout kill 時に mitsume が内部的に扱う exit code
-// (GNU timeout(1) 慣習、docs/checkers.md § cmd checker § 固有の挙動)。
+// (GNU timeout(1) 慣習)。
 const TimeoutExitCode = 124
 
 // DefaultTimeout は checker.timeout / defaults.timeout が両方未指定のときの
-// 暗黙 default (docs/checkers.md § cmd checker § 固有の挙動)。
+// 暗黙 default。
 const DefaultTimeout = 30 * time.Second
 
 // stderrTailLines は failure 通知に含める stderr 末尾の最大行数。
@@ -67,9 +66,8 @@ type Expect struct {
 type Options struct {
 	Defaults DefaultsFallback
 	// GracePeriod は timeout 発火後の SIGTERM → SIGKILL 猶予。0 (未指定) の
-	// ときは constant の GracePeriod (5s) を使う。docs/checkers.md は 5s 固定
-	// と規定するので production では常に 0 (default)。テストで SIGKILL fallback
-	// を検証するときだけ短い値を差し込む注入経路。
+	// ときは constant の GracePeriod を使う。production では常に 0 で、テストで
+	// SIGKILL fallback を検証するときだけ短い値を差し込む注入経路。
 	GracePeriod time.Duration
 }
 
@@ -171,8 +169,7 @@ func resolveTimeout(explicit config.Duration, fallback time.Duration) time.Durat
 	return DefaultTimeout
 }
 
-// autoName は docs/checkers.md § name の自動生成 の cmd 規則 (command 先頭
-// 32 文字) に従い、joined command から先頭 32 rune を切り出す。byte スライス
+// autoName は joined command から先頭 nameTruncateChars rune を切り出す。byte スライス
 // だと multi-byte UTF-8 (日本語 / emoji) を境界で分断して invalid UTF-8 に
 // なるため rune-safe に処理する。
 func autoName(command []string) string {
@@ -194,7 +191,7 @@ func (c *Checker) Name() string { return c.name }
 // Interval は評価周期。
 func (c *Checker) Interval() time.Duration { return c.interval }
 
-// Confirm は失敗確信 burst 設定。
+// Confirm は confirm の設定。
 func (c *Checker) Confirm() confirm.Config { return c.confirmCfg }
 
 // Command は監視対象 command (直接 exec、shell 経由しない)。
@@ -217,7 +214,7 @@ func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 		)
 	}
 	// context 経由の自動 kill (SIGKILL 直行) は使わず、awaitCompletion で
-	// SIGTERM → grace → SIGKILL を自前で制御する (docs/checkers.md § cmd)。
+	// SIGTERM → grace → SIGKILL を自前で制御する。
 	// exec.CommandContext に Background を渡すのはその意図の表明。
 	proc := exec.CommandContext(context.Background(), c.command[0], c.command[1:]...)
 	proc.Env = mergeEnv(os.Environ(), c.env)
@@ -345,7 +342,7 @@ func (c *Checker) expectedString() string {
 }
 
 // mergeEnv は parent env に user 指定 env を上書きした env slice を返す
-// (docs/checkers.md § cmd checker § 固有の挙動: env が優先)。
+// (同名の key は user 指定が優先)。
 func mergeEnv(parent []string, override map[string]string) []string {
 	if len(override) == 0 {
 		return parent
@@ -372,8 +369,7 @@ func mergeEnv(parent []string, override map[string]string) []string {
 	return out
 }
 
-// truncateStderr は stderr の末尾を「20 行 or 2KB の小さい方」で切り出す
-// (docs/notify.md § payload 形式 と docs/checkers.md § cmd)。
+// truncateStderr は stderr の末尾を stderrTailLines / stderrTailBytes の範囲で切り出す。
 func truncateStderr(b []byte) string {
 	return string(tailio.Truncate(b, stderrTailLines, stderrTailBytes))
 }

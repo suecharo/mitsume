@@ -18,8 +18,8 @@ func TestParseJSONPath_ValidForms(t *testing.T) {
 		"$[0].name":     {{index: 0, isIndex: true}, {field: "name"}},
 		"$.a_b-c":       {{field: "a_b-c"}},
 		"$.a.b.c.d.e.f": {{field: "a"}, {field: "b"}, {field: "c"}, {field: "d"}, {field: "e"}, {field: "f"}},
-		// docs/checkers.md § body_jsonpath は field 名の文字集合を英数字 + _ + - と規定し
-		// 先頭文字への位置的制約は無い。digit / - 始まりも valid として扱う。
+		// field 名の文字集合は英数字 + _ + - で、先頭文字への位置的制約は無い。
+		// digit / - 始まりも valid として扱う。
 		"$.1st_call":  {{field: "1st_call"}},
 		"$.-meta":     {{field: "-meta"}},
 		"$.9":         {{field: "9"}},

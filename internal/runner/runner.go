@@ -1,7 +1,6 @@
 // Package runner は check / watch サブコマンドの評価ループを担う。全 checker
-// を並列に評価し、docs/checkers.md § confirm の失敗確信 burst を回し、失敗
-// 確定した checker について Slack alert を送る。docs/cli.md § check / watch と
-// docs/architecture.md § 失敗確信モデル に従う。
+// を並列に評価し、失敗した checker は confirm で再確認してから Slack alert を
+// 送る。
 package runner
 
 import (
@@ -19,13 +18,11 @@ import (
 )
 
 // DefaultContainerEvaluationTimeout は container checker 呼び出しに runner が
-// 被せる hard cap timeout。docs/checkers.md § container § 固有の挙動 に従い
-// HTTP / cmd の暗黙 default と揃えた 30s。config field は持たない。
+// 被せる hard cap timeout。config field は持たない。
 const DefaultContainerEvaluationTimeout = 30 * time.Second
 
 // Sleeper は runner の interval / confirm.interval 待ちを抽象化する。realSleeper
-// を default とし、テスト用 fake で決定的にサイクルを進められる形にする
-// (tests/README.md § mock 境界: 時刻)。
+// を default とし、テスト用 fake で決定的にサイクルを進められる形にする。
 type Sleeper interface {
 	// Sleep は d だけ待機する。ctx が cancel されたら即座に ctx.Err を返す。
 	// d <= 0 の場合は即座に nil を返す。
@@ -56,7 +53,7 @@ type Runner struct {
 	// Checkers は評価対象。loader.BuildCheckers の返り値をそのまま渡す想定。
 	Checkers []checker.Checker
 	// HeartbeatFile は deadman を含む config で必須。pre-flight と per-cycle
-	// snapshot load で使う (docs/heartbeat.md § 読み込みモデル)。
+	// snapshot load で使う。
 	HeartbeatFile string
 	// Notifier は Slack alert / dry-run 分岐を含む notify wrapper。呼び出し側は
 	// notify.Client (production) か test 用 fake Sender を Sender に埋め込む。
@@ -79,7 +76,7 @@ type Runner struct {
 }
 
 // RunOnce は全 checker を並列に 1 回評価する (check サブコマンド用)。個別 check
-// の failure は exit code に反映しない (docs/cli.md § check § exit code)。返り値の
+// の failure は exit code に反映しない。返り値の
 // error は pre-flight の heartbeat 読み込み失敗など、mitsume 側の異常のみ。
 func (r *Runner) RunOnce(ctx context.Context) error {
 	if err := r.PreflightHeartbeat(); err != nil {
@@ -102,7 +99,7 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 
 // RunLoop は起動直後に各 checker を 1 回評価し、以降は checker ごとに独立して
 // interval ごとに評価する (watch サブコマンド用)。ctx.Done で graceful shutdown
-// し、走行中の評価結果は破棄する (docs/cli.md § watch § 動作)。
+// し、走行中の評価結果は破棄する。
 func (r *Runner) RunLoop(ctx context.Context) error {
 	if err := r.PreflightHeartbeat(); err != nil {
 		return err
@@ -123,8 +120,7 @@ func (r *Runner) RunLoop(ctx context.Context) error {
 }
 
 // PreflightHeartbeat は deadman を含む config で起動時に heartbeat file の
-// read + parse が成功するかを確認する (docs/heartbeat.md § 読み込みモデル の
-// 起動時 fail-fast)。deadman を含まない場合は no-op。
+// read + parse が成功するかを確認する (起動時 fail-fast)。deadman を含まない場合は no-op。
 func (r *Runner) PreflightHeartbeat() error {
 	if !r.hasDeadman() {
 		return nil
@@ -169,10 +165,9 @@ func (r *Runner) checkerLoop(ctx context.Context, c checker.Checker) {
 	}
 }
 
-// evaluateWithBurst は 1 checker cycle 分の評価を担う。initial 評価 → 失敗検知
-// なら confirm burst → 全滅で alert / 途中成功で reset の状態遷移。alert 送信時
-// の payload には最終確認 (最新観測) の Result を載せる (docs/notify.md § 発火
-// モデル)。
+// evaluateWithBurst は 1 checker cycle 分の評価を担う。初回評価が失敗なら
+// confirm の再確認を回し、全滅で alert、途中で成功すれば alert なしで終える。
+// alert の payload には最後の再確認の Result を載せる。
 func (r *Runner) evaluateWithBurst(ctx context.Context, c checker.Checker) {
 	r.refreshDeadmanSnapshot(c)
 	first := r.evaluate(ctx, c)
@@ -207,7 +202,7 @@ func (r *Runner) evaluateWithBurst(ctx context.Context, c checker.Checker) {
 }
 
 // evaluate は 1 回の Evaluate 呼び出し。container checker には hard cap timeout を
-// 被せる (docs/checkers.md § container § 固有の挙動)。他 checker は呼び出し側の
+// 被せる。他 checker は呼び出し側の
 // ctx をそのまま渡す (HTTP / cmd checker は自身で timeout を管理する)。
 func (r *Runner) evaluate(ctx context.Context, c checker.Checker) checker.Result {
 	if c.Type() == "container" {
@@ -222,8 +217,8 @@ func (r *Runner) evaluate(ctx context.Context, c checker.Checker) checker.Result
 }
 
 // refreshDeadmanSnapshot は c が deadman なら snapshot を per-cycle で load して
-// SetSnapshotProvider で差し込む。checker cycle (通常 interval + burst) の起点で
-// のみ呼び、burst 内では snapshot を維持する。deadman 以外は no-op。
+// SetSnapshotProvider で差し込む。checker cycle (通常 interval + confirm の
+// 再確認) の起点でのみ呼び、再確認の間は snapshot を維持する。deadman 以外は no-op。
 // snapshot load 自体が error になった場合は provider が error を返す形にして
 // 該当サイクルの deadman 評価を failure として扱う (loop 継続、次サイクルで再度
 // load を試みる)。
@@ -240,9 +235,8 @@ func (r *Runner) refreshDeadmanSnapshot(c checker.Checker) {
 }
 
 // sendAlert は failure 確定通知を送る。cmd checker の Stderr は payload text の
-// 末尾に改行区切りで追加 (docs/notify.md § payload 形式)。Notifier.Send は
-// dry-run 分岐を含み、通知失敗は stderr に log を吐くだけで evaluation は継続
-// (docs/notify.md § 通知失敗時の retry: check 評価結果を変えない)。
+// 末尾に改行区切りで追加する。通知失敗は stderr に log を吐くだけで、評価結果は
+// 変えず evaluation は継続する。
 func (r *Runner) sendAlert(ctx context.Context, c checker.Checker, result checker.Result) {
 	if r.Notifier == nil {
 		fmt.Fprintf(os.Stderr, "mitsume: alert dropped for %s: notifier is not configured\n", c.Name())
@@ -258,7 +252,7 @@ func (r *Runner) sendAlert(ctx context.Context, c checker.Checker, result checke
 		Expected: result.Expected,
 		Time:     r.now(),
 	}
-	payload := notify.BuildFailure(failure, r.Notifier.Options)
+	payload := notify.BuildFailure(failure)
 	if result.Stderr != "" {
 		payload.Text = payload.Text + "\n" + result.Stderr
 	}

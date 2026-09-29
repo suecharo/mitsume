@@ -14,8 +14,7 @@ type jsonPathSegment struct {
 	isIndex bool
 }
 
-// parseJSONPath は path を segments に変換する。サポートする書式は
-// docs/checkers.md § body_jsonpath の path 節に列挙されたもの:
+// parseJSONPath は path を segments に変換する。サポートする書式は次のとおり:
 //
 //	$                      → root
 //	$.field                → property access
@@ -24,9 +23,9 @@ type jsonPathSegment struct {
 //	$.field[N].subfield    → array element property
 //	$[N]                   → root array index
 //
-// field 名の文字集合は [a-zA-Z0-9_-] (先頭文字を含む全 char に等しく適用する。
-// docs には位置的制約は無い)。bracket notation (`['key']`)、再帰探索 (`..`)、
-// wildcard (`*`)、filter (`?()`)、slice (`[a:b]`) は非対応。
+// field 名の文字集合は [a-zA-Z0-9_-] (先頭文字にも同じく適用する)。bracket
+// notation (`['key']`)、再帰探索 (`..`)、wildcard (`*`)、filter (`?()`)、
+// slice (`[a:b]`) は非対応。
 func parseJSONPath(p string) ([]jsonPathSegment, error) {
 	if p == "" {
 		return nil, fmt.Errorf("jsonpath: empty path")

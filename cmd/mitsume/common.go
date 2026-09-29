@@ -18,16 +18,14 @@ import (
 	"github.com/suecharo/mitsume/internal/runner"
 )
 
-// env 変数名の既定 (docs/cli.md § 環境変数)。
+// env 変数名の既定。
 const (
 	defaultWebhookEnvKey = "MITSUME_SLACK_WEBHOOK_URL"
 	heartbeatEnvKey      = "MITSUME_HEARTBEAT_FILE"
 	jobEnvKey            = "MITSUME_JOB"
 )
 
-// resolveWebhookEnvName は Slack webhook URL を保持する env 変数名を
-// 「CLI flag > config.notify.webhook_url_env > 既定 MITSUME_SLACK_WEBHOOK_URL」の
-// 順で解決する (docs/notify.md § 秘密情報の扱い)。
+// resolveWebhookEnvName は Slack webhook URL を保持する env 変数名を返す。
 func resolveWebhookEnvName(cliEnv string, cfg *config.Config) string {
 	if cliEnv != "" {
 		return cliEnv
@@ -40,8 +38,8 @@ func resolveWebhookEnvName(cliEnv string, cfg *config.Config) string {
 }
 
 // resolveWebhookURL は envName から webhook URL 本体を取り出す。未定義なら
-// error。docs/notify.md § 秘密情報 通り、値そのものは error にも stderr にも
-// 書かない (env 変数の名前だけ error に載せる)。
+// error。URL は秘密情報なので error にも stderr にも書かず、env 変数の名前だけ
+// error に載せる。
 func resolveWebhookURL(envName string) (string, error) {
 	url := os.Getenv(envName)
 	if url == "" {
@@ -51,9 +49,7 @@ func resolveWebhookURL(envName string) (string, error) {
 	return url, nil
 }
 
-// resolveHeartbeatPath は heartbeat file の path を
-// 「CLI flag > $MITSUME_HEARTBEAT_FILE > config.heartbeat_file > config 隣接の
-// .heartbeat.json」の順で解決する (docs/heartbeat.md § 場所)。
+// resolveHeartbeatPath は heartbeat file の path を解決する。
 func resolveHeartbeatPath(cliPath string, cfg *config.Config) (string, error) {
 	if cliPath != "" {
 		return cliPath, nil
@@ -77,46 +73,24 @@ func resolveHeartbeatPath(cliPath string, cfg *config.Config) (string, error) {
 		heartbeatEnvKey)
 }
 
-// notifyOptionsFromConfig は cfg.Notify から notify.Options (username / icon) を
-// 取り出す。cfg が nil なら zero value。
-func notifyOptionsFromConfig(cfg *config.Config) notify.Options {
-	if cfg == nil {
-		return notify.Options{}
-	}
-
-	return notify.Options{
-		Username:  cfg.Notify.Username,
-		IconEmoji: cfg.Notify.IconEmoji,
-		IconURL:   cfg.Notify.IconURL,
-	}
-}
-
-// newNotifier は Slack Incoming Webhook 送信用の lifecycle.Notifier を作る。
-// dryRun=true なら Sender=nil (Notifier.Send が Stderr 経由で payload を出す)、
-// 通常時は notify.Client を Sender に埋め込む。
-func newNotifier(webhookURL string, cfg *config.Config, dryRun bool) *lifecycle.Notifier {
-	opts := notifyOptionsFromConfig(cfg)
+// newNotifier は dryRun なら Sender を持たない Notifier を、それ以外は
+// notify.Client を Sender に持つ Notifier を返す。
+func newNotifier(webhookURL string, dryRun bool) *lifecycle.Notifier {
 	if dryRun {
-		return &lifecycle.Notifier{
-			Options: opts,
-			DryRun:  true,
-		}
-	}
-	client := &notify.Client{
-		WebhookURL: webhookURL,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		return &lifecycle.Notifier{DryRun: true}
 	}
 
 	return &lifecycle.Notifier{
-		Sender:  client,
-		Options: opts,
+		Sender: &notify.Client{
+			WebhookURL: webhookURL,
+			HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		},
 	}
 }
 
-// durationFlag は flag.Var で使う durationx.Parse (docs/configuration.md §
-// duration 表記、`d` 対応) 準拠の duration 型。標準 flag.Duration は
-// `time.ParseDuration` を使い `d` 表記を扱わないため、mitsume の他の duration
-// 入力と一貫させるためにカスタム型を用意する。
+// durationFlag は flag.Var で使う durationx.Parse 準拠の duration 型。標準の
+// flag.Duration は time.ParseDuration を使い `d` 表記を扱わないため、他の
+// duration 入力と揃えるためにカスタム型を用意する。
 type durationFlag struct {
 	value time.Duration
 	isSet bool
@@ -205,7 +179,7 @@ func setupRunner(opts runnerSetupOpts) (*runner.Runner, int) {
 
 		return nil, 1
 	}
-	notifier := newNotifier(url, cfg, opts.DryRun)
+	notifier := newNotifier(url, opts.DryRun)
 
 	return &runner.Runner{
 		Checkers:      checkers,
@@ -216,13 +190,12 @@ func setupRunner(opts runnerSetupOpts) (*runner.Runner, int) {
 	}, 0
 }
 
-// splitFlags は args を flag 群と位置引数に分離する。Go の flag package は
-// 最初の非 flag 引数で parse を打ち切るため、docs/cli.md の使用例にある
-// 「位置引数の後ろに flag」(例: mitsume ping nightly-backup --dry-run) を
-// 成立させるにはこの前処理が要る。"--" 以降はすべて位置引数として扱う。
-// 値を取る flag は次の引数も flag 側へ寄せる (bool flag か否かは fs 上の
-// 定義から判定する)。未定義 flag はそのまま flag 側へ残し、fs.Parse に
-// エラーを報告させる。
+// splitFlags は args を flag 群と位置引数に分ける。Go の flag package は最初の
+// 非 flag 引数で parse を打ち切るので、位置引数の後ろに flag を置く形
+// (mitsume ping nightly-backup --dry-run) にはこの前処理が要る。"--" 以降は
+// すべて位置引数として扱う。値を取る flag は次の引数も flag 側に入れる (bool
+// flag かどうかは fs の定義で判定する)。未定義の flag は flag 側に残し、
+// fs.Parse にエラーを報告させる。
 func splitFlags(fs *flag.FlagSet, args []string) (flags, positionals []string) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]

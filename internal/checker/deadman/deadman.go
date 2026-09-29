@@ -1,5 +1,4 @@
-// Package deadman は dead-man's switch checker を実装する。仕様は docs/checkers.md
-// § deadman checker と docs/heartbeat.md § 読み込みモデル に従う。
+// Package deadman は dead-man's switch checker を実装する。
 package deadman
 
 import (
@@ -26,7 +25,7 @@ type Config struct {
 	Expect   Expect          `json:"expect"`
 }
 
-// Expect は deadman の判定条件 (docs/checkers.md § deadman § expect)。
+// Expect は deadman の判定条件。
 type Expect struct {
 	Within config.Duration `json:"within"`
 }
@@ -35,17 +34,16 @@ type Expect struct {
 type Options struct {
 	// Defaults は config.defaults からの継承値。deadman は Interval のみ使う。
 	Defaults DefaultsFallback
-	// HeartbeatFile は heartbeat file の絶対パス (docs/heartbeat.md § 場所)。
+	// HeartbeatFile は heartbeat file の絶対パス。
 	// 呼び出し側 (cmd/mitsume の check/watch) が解決して渡す。
 	HeartbeatFile string
 	// ClockNow は現在時刻 provider。nil なら time.Now。テストの決定性のため
-	// 注入経路を残す (tests/README.md § mock 境界: 時刻)。
+	// 注入経路を残す。
 	ClockNow func() time.Time
-	// SnapshotProvider は heartbeat file snapshot の取得関数。docs/heartbeat.md
-	// § 読み込みモデル の「サイクル起点で 1 度だけ read、同一サイクル内の複数
-	// deadman 評価は同じ snapshot を共有」を成立させるための注入経路。呼び出し側
-	// (runner) が per-cycle で snapshot を共有 closure に閉じ込め、burst 中も
-	// 同じ closure を返す。nil の場合は Evaluate が都度 HeartbeatFile を read する
+	// SnapshotProvider は heartbeat file snapshot の取得関数。同一サイクル内の
+	// 複数 deadman 評価が同じ snapshot を共有するための注入経路。呼び出し側
+	// (runner) が per-cycle で snapshot を共有 closure に閉じ込め、confirm の
+	// 再確認の間も同じ closure を返す。nil の場合は Evaluate が都度 HeartbeatFile を read する
 	// (単発の check や runner を経由しない test 経路)。
 	SnapshotProvider func() (*heartbeat.File, error)
 }
@@ -144,7 +142,7 @@ func (c *Checker) Name() string { return c.name }
 // Interval は評価周期。
 func (c *Checker) Interval() time.Duration { return c.interval }
 
-// Confirm は失敗確信 burst 設定。
+// Confirm は confirm の設定。
 func (c *Checker) Confirm() confirm.Config { return c.confirmCfg }
 
 // Job は監視対象 job 識別子。テストと config 側の一意性検証で使う。
@@ -155,8 +153,7 @@ func (c *Checker) Within() time.Duration { return c.within }
 
 // Evaluate は heartbeat file を read only で参照し、job の last_ping_at と
 // 現在時刻の差を expect.within と比較する。snapshotProvider が非 nil なら
-// それを優先し、docs/heartbeat.md § 読み込みモデル の「サイクル起点で 1 度
-// だけ read」を成立させる。nil の場合は都度 heartbeat.Load(path) する。
+// それを優先し、nil の場合は都度 heartbeat.Load(path) する。
 func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 	expected := fmt.Sprintf("within=%s", durationx.Format(c.within))
 	if err := ctx.Err(); err != nil {
@@ -192,8 +189,7 @@ func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 	}
 	elapsed := c.clockNow().Sub(entry.LastPingAt)
 	if elapsed >= c.within {
-		// 通知には秒精度で十分。sub-second の生値は可読性を下げるだけなので落とす
-		// (docs/notify.md § Payload の last_ping=25h12m ago 形式)。
+		// 通知には秒精度で十分。sub-second の生値は可読性を下げるだけなので落とす。
 		elapsedStr := durationx.Format(elapsed.Truncate(time.Second))
 
 		return checker.Failure(

@@ -64,15 +64,7 @@ func runNotify(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	var opts notify.Options
-	if cfg != nil {
-		opts = notify.Options{
-			Username:  cfg.Notify.Username,
-			IconEmoji: cfg.Notify.IconEmoji,
-			IconURL:   cfg.Notify.IconURL,
-		}
-	}
-	payload := notify.BuildAnnouncement(msg, opts)
+	payload := notify.BuildAnnouncement(msg)
 
 	if *dryRun {
 		data, err := json.MarshalIndent(payload, "", "  ")

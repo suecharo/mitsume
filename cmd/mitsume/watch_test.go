@@ -7,8 +7,7 @@ import (
 
 func TestSignalName_UsesConventionalNames(t *testing.T) {
 	t.Parallel()
-	// docs/notify.md § Shutdown announcement payload: signal=<name> には
-	// SIGTERM / SIGINT の慣用名を載せる (Go の String() は terminated / interrupt)。
+	// Go の String() は terminated / interrupt を返すが、慣用名を載せる。
 	if got := signalName(syscall.SIGTERM); got != "SIGTERM" {
 		t.Errorf("signalName(SIGTERM) = %q, want SIGTERM", got)
 	}

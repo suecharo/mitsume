@@ -1,7 +1,6 @@
-// Package config は設定 JSON の探索・parse・validate を提供する。schema と
-// 探索順の仕様は docs/configuration.md に従う。checker 個別のフィールド parse
-// はこの package では扱わず、checks[] の各要素は json.RawMessage で持ち越し、
-// type discriminator と deadman の job だけを解決する。
+// Package config は設定 JSON の探索・parse・validate を提供する。
+// checker 個別のフィールド parse はこの package では扱わず、checks[] の各要素は
+// json.RawMessage で持ち越し、type discriminator と deadman の job だけを解決する。
 package config
 
 import (
@@ -23,12 +22,11 @@ const EnvKey = "MITSUME_CONFIG"
 // DefaultFileName は自動探索で見に行くカレント配下の config file 名。
 const DefaultFileName = "mitsume.json"
 
-// jobNameRe は job 識別子の命名規則 (docs/configuration.md § job)。
+// jobNameRe は job 識別子の命名規則。
 var jobNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
-// ValidateJobName は docs/cli.md § 識別子解決 の job 命名規則 [a-zA-Z0-9_-]{1,64}
-// を強制する。config 由来だけでなく、CLI positional / 環境変数から取った job
-// にも同じ規則が適用される (job は識別子そのものの制約)。
+// ValidateJobName は job 名が jobNameRe に合うことを確認する。設定 JSON の job
+// だけでなく、CLI の位置引数や環境変数から取った job にも同じ規則を適用する。
 func ValidateJobName(name string) error {
 	if name == "" {
 		return fmt.Errorf("job identifier is empty")
@@ -51,13 +49,10 @@ type Config struct {
 	SourcePath    string            `json:"-"`
 }
 
-// Notify は notify セクション。webhook URL 本体は保持せず、値を保持する env の
-// 名前だけを保持する (秘密情報は env 経由: docs/notify.md § 秘密情報の扱い)。
+// Notify は notify セクション。webhook URL は秘密情報なので値を持たず、値を
+// 保持する env の名前だけを持つ。
 type Notify struct {
 	WebhookURLEnv string `json:"webhook_url_env"`
-	Username      string `json:"username,omitempty"`
-	IconEmoji     string `json:"icon_emoji,omitempty"`
-	IconURL       string `json:"icon_url,omitempty"`
 }
 
 // Defaults は checks[] に適用する共通デフォルト値。
@@ -107,10 +102,9 @@ func (d Duration) Value() time.Duration { return d.value }
 // IsSet は JSON で明示的に指定されていれば true。
 func (d Duration) IsSet() bool { return d.set }
 
-// Search は config file を「cliPath > $MITSUME_CONFIG > cwd/mitsume.json」の順で
-// 探し、最初に見つかった 1 個を返す。cliPath / env は明示指定なので stat 失敗を
-// error として返す。cwd の default は自動探索なので、無くても error にしない。
-// cwd は呼び出し側 (通常は os.Getwd()) が渡す。
+// Search は config file を探し、最初に見つかった 1 個を返す。cliPath と env は
+// 明示の指定なので、stat に失敗したら error にする。cwd の mitsume.json は
+// 自動の探索なので、無くても error にしない。cwd は呼び出し側が渡す。
 func Search(cliPath, cwd string) (path string, found bool, err error) {
 	if cliPath != "" {
 		if _, statErr := os.Stat(cliPath); statErr != nil {

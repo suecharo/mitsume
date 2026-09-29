@@ -1,6 +1,5 @@
 // Package heartbeat は dead-man's switch 用の永続 state を持つ heartbeat file の
-// schema と atomic な R/W を提供する。file 形式とパス解決の仕様は docs/heartbeat.md
-// に従う。
+// schema と atomic な R/W を提供する。
 package heartbeat
 
 import (

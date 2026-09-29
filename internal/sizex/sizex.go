@@ -1,6 +1,5 @@
 // Package sizex は 1024 ベースの human-readable size 表記 (100B, 512KB, 100MB,
-// 10GB, 1TB) と整数 byte 直書きを受ける size parser を提供する。書式の詳細は
-// docs/configuration.md § size 表記 に従う。
+// 10GB, 1TB) と整数 byte 直書きを受ける size parser を提供する。
 package sizex
 
 import (
@@ -23,9 +22,8 @@ var units = []unit{
 	{"B", 1},
 }
 
-// Format は byte 数を docs/configuration.md § size 表記 の 1024 ベース単位で
-// human-readable な文字列にする (payload の observed / expected に載せる用途、
-// docs/notify.md § payload 形式 の "size=80MB" 形式)。負値は "-<abs>" 形式で
+// Format は byte 数を 1024 ベース単位の human-readable な文字列にする
+// (payload の observed / expected に載せる用途)。負値は "-<abs>" 形式で
 // 出す。単位が丸められない (余りが出る) 場合は下位単位で表現する。
 func Format(n int64) string {
 	if n == 0 {

@@ -57,7 +57,7 @@ func writeHeartbeatJSON(t *testing.T, dir, name string, jobs map[string]time.Tim
 }
 
 // captureWebhook は Slack Incoming Webhook を模した httptest server を立て、
-// 受信 payload を全部貯めて返す。tests/README.md § cross-boundary の Slack
+// 受信 payload を全部貯めて返す。Slack
 // 通知検証用。cleanup で srv.Close は t.Cleanup 経由。
 func captureWebhook(t *testing.T) (url string, received func() []string) {
 	t.Helper()
@@ -131,7 +131,7 @@ func TestIntegrationCheck_HttpFailureAlerts(t *testing.T) {
 	cmd.Dir = t.TempDir()
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	// 個別 failure でも exit 0 (docs/cli.md § check § exit code)
+	// 個別 failure でも exit 0
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("check must exit 0 even on individual failure: %v\nstderr: %s", err, stderr.String())
 	}
@@ -254,7 +254,7 @@ func TestIntegrationCheck_DeadmanAdjacentHeartbeatFallbackWithNoPingAlerts(t *te
 	// heartbeat file を明示せず config 隣接 (mitsume.heartbeat.json) の自動探索に
 	// 委ねる。ファイルが存在しない場合、heartbeat.Load は空 File を返すので
 	// PreflightHeartbeat は成功、deadman は "job has never been pinged" で failure
-	// → alert 1 通、exit 0 (docs/heartbeat.md § 読み込みモデル)。
+	// → alert 1 通、exit 0。
 	dir := t.TempDir()
 	webhookURL, received := captureWebhook(t)
 	cfgBody := `{
@@ -362,7 +362,7 @@ func TestIntegrationCheck_HttpFailureBurstThreeAlertsOnce(t *testing.T) {
 	}))
 	defer target.Close()
 	webhookURL, received := captureWebhook(t)
-	// burst: checks=3, interval=1ms → 3 回 evaluate、alert 1 通
+	// confirm の再確認: checks=3, interval=1ms → 3 回 evaluate、alert 1 通
 	cfgBody := fmt.Sprintf(`{
   "notify": {"webhook_url_env": "MITSUME_SLACK_WEBHOOK_URL"},
   "checks": [

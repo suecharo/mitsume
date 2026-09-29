@@ -17,7 +17,7 @@ import (
 
 func TestBuildAnnouncement_TextIsMessageVerbatim(t *testing.T) {
 	t.Parallel()
-	p := notify.BuildAnnouncement("hello world", notify.Options{})
+	p := notify.BuildAnnouncement("hello world")
 	if p.Text != "hello world" {
 		t.Fatalf("Text = %q, want hello world", p.Text)
 	}
@@ -26,32 +26,29 @@ func TestBuildAnnouncement_TextIsMessageVerbatim(t *testing.T) {
 	}
 }
 
-func TestBuildAnnouncement_IncludesUsernameAndIcon(t *testing.T) {
+func TestBuildAnnouncement_MarshalsTextOnly(t *testing.T) {
 	t.Parallel()
-	opts := notify.Options{
-		Username:  "mitsume@host",
-		IconEmoji: ":rotating_light:",
-		IconURL:   "https://example.com/x.png",
-	}
-	p := notify.BuildAnnouncement("hi", opts)
-	if p.Username != opts.Username || p.IconEmoji != opts.IconEmoji || p.IconURL != opts.IconURL {
-		t.Fatalf("options not propagated: %+v", p)
-	}
-}
-
-func TestBuildAnnouncement_MarshalsWithoutAttachmentsField(t *testing.T) {
-	t.Parallel()
-	p := notify.BuildAnnouncement("hello", notify.Options{Username: "u", IconEmoji: ":e:"})
-	data, err := json.Marshal(p)
+	data, err := json.Marshal(notify.BuildAnnouncement("hello"))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	s := string(data)
-	if strings.Contains(s, `"attachments"`) {
-		t.Fatalf("attachments should be omitted, got %s", s)
+	if string(data) != `{"text":"hello"}` {
+		t.Fatalf("payload = %s, want {\"text\":\"hello\"}", data)
 	}
-	if strings.Contains(s, `"icon_url"`) {
-		t.Fatalf("empty icon_url should be omitted, got %s", s)
+}
+
+func TestBuildFailure_MarshalsOnlyTextAndAttachments(t *testing.T) {
+	t.Parallel()
+	data, err := json.Marshal(notify.BuildFailure(notify.Failure{Check: "c"}))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(top) != 2 || top["text"] == nil || top["attachments"] == nil {
+		t.Fatalf("top-level keys should be exactly text and attachments, got %s", data)
 	}
 }
 
@@ -63,7 +60,7 @@ func TestBuildFailure_TextFormatMatchesSpec(t *testing.T) {
 		Error: "status=503, want=200", Observed: "status=503", Expected: "status=200",
 		Time: ts,
 	}
-	p := notify.BuildFailure(f, notify.Options{})
+	p := notify.BuildFailure(f)
 	want := "[mitsume] api-health failed (http: status=503, want=200)\n" +
 		"host: api-prod-01\ntime: 2026-06-30T14:23:15+09:00"
 	if p.Text != want {
@@ -73,7 +70,7 @@ func TestBuildFailure_TextFormatMatchesSpec(t *testing.T) {
 
 func TestBuildFailure_AttachmentColorIsDanger(t *testing.T) {
 	t.Parallel()
-	p := notify.BuildFailure(notify.Failure{}, notify.Options{})
+	p := notify.BuildFailure(notify.Failure{})
 	if len(p.Attachments) != 1 {
 		t.Fatalf("expected 1 attachment, got %d", len(p.Attachments))
 	}
@@ -88,7 +85,7 @@ func TestBuildFailure_FieldsOrderMatchesSpec(t *testing.T) {
 		Host: "h", Check: "c", Type: "t", Observed: "o", Expected: "e",
 		Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	p := notify.BuildFailure(f, notify.Options{})
+	p := notify.BuildFailure(f)
 	titles := make([]string, 0, len(p.Attachments[0].Fields))
 	for _, fld := range p.Attachments[0].Fields {
 		titles = append(titles, fld.Title)
@@ -119,7 +116,7 @@ func TestSend_Success200(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &notify.Client{WebhookURL: srv.URL, Backoffs: []time.Duration{0, 0, 0}}
-	if err := c.Send(context.Background(), notify.BuildAnnouncement("hi", notify.Options{})); err != nil {
+	if err := c.Send(context.Background(), notify.BuildAnnouncement("hi")); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if got := atomic.LoadInt32(&received); got != 1 {
@@ -136,7 +133,7 @@ func TestSend_ClientErrorNotRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &notify.Client{WebhookURL: srv.URL, Backoffs: []time.Duration{0, 0, 0}}
-	if err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{})); err == nil {
+	if err := c.Send(context.Background(), notify.BuildAnnouncement("x")); err == nil {
 		t.Fatalf("expected error for 400")
 	}
 	if got := atomic.LoadInt32(&calls); got != 1 {
@@ -158,7 +155,7 @@ func TestSend_ServerErrorIsRetriedThenSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &notify.Client{WebhookURL: srv.URL, Backoffs: []time.Duration{0, 0, 0}}
-	if err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{})); err != nil {
+	if err := c.Send(context.Background(), notify.BuildAnnouncement("x")); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if got := atomic.LoadInt32(&calls); got != 3 {
@@ -175,7 +172,7 @@ func TestSend_ServerErrorRetriesExhausted(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &notify.Client{WebhookURL: srv.URL, Backoffs: []time.Duration{0, 0, 0}}
-	if err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{})); err == nil {
+	if err := c.Send(context.Background(), notify.BuildAnnouncement("x")); err == nil {
 		t.Fatalf("expected error after retries")
 	}
 	if got := atomic.LoadInt32(&calls); got != 4 {
@@ -199,7 +196,7 @@ func TestSend_NetworkErrorIsRetried(t *testing.T) {
 		HTTPClient: client,
 		Backoffs:   []time.Duration{0, 0, 0},
 	}
-	err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{}))
+	err := c.Send(context.Background(), notify.BuildAnnouncement("x"))
 	if err == nil {
 		t.Fatalf("expected network error")
 	}
@@ -223,7 +220,7 @@ func TestSend_ErrorDoesNotLeakWebhookURL_4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &notify.Client{WebhookURL: srv.URL, Backoffs: []time.Duration{0, 0, 0}}
-	err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{}))
+	err := c.Send(context.Background(), notify.BuildAnnouncement("x"))
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -239,7 +236,7 @@ func TestSend_ErrorDoesNotLeakWebhookURL_5xxRetriesExhausted(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &notify.Client{WebhookURL: srv.URL, Backoffs: []time.Duration{0, 0, 0}}
-	err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{}))
+	err := c.Send(context.Background(), notify.BuildAnnouncement("x"))
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -261,7 +258,7 @@ func TestSend_ErrorDoesNotLeakWebhookURL_TransportFailure(t *testing.T) {
 		HTTPClient: client,
 		Backoffs:   []time.Duration{0, 0, 0},
 	}
-	err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{}))
+	err := c.Send(context.Background(), notify.BuildAnnouncement("x"))
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -281,7 +278,7 @@ func TestSend_ErrorDoesNotLeakWebhookURL_MalformedURL(t *testing.T) {
 		WebhookURL: "https://hooks.slack.example/services/T0/B0/" + secretToken + "\n",
 		Backoffs:   []time.Duration{0, 0, 0},
 	}
-	err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{}))
+	err := c.Send(context.Background(), notify.BuildAnnouncement("x"))
 	if err == nil {
 		t.Fatalf("expected build request error")
 	}
@@ -306,7 +303,7 @@ func TestSend_ContextCancelInterruptsBackoff(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- c.Send(ctx, notify.BuildAnnouncement("x", notify.Options{}))
+		done <- c.Send(ctx, notify.BuildAnnouncement("x"))
 	}()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -323,7 +320,7 @@ func TestSend_ContextCancelInterruptsBackoff(t *testing.T) {
 func TestSend_EmptyWebhookIsError(t *testing.T) {
 	t.Parallel()
 	c := &notify.Client{}
-	if err := c.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{})); err == nil {
+	if err := c.Send(context.Background(), notify.BuildAnnouncement("x")); err == nil {
 		t.Fatalf("expected error for empty webhook")
 	}
 }
@@ -335,7 +332,7 @@ func TestBuildSuccess_TextFormatMatchesSpec(t *testing.T) {
 		Check: "nightly-backup",
 		Type:  "run",
 		Time:  time.Date(2026, 6, 30, 14, 23, 15, 0, time.FixedZone("JST", 9*3600)),
-	}, notify.Options{})
+	})
 	want := "[mitsume] nightly-backup succeeded (run: exit=0)\nhost: api-prod-01\ntime: 2026-06-30T14:23:15+09:00"
 	if p.Text != want {
 		t.Fatalf("Text = %q, want %q", p.Text, want)
@@ -346,7 +343,7 @@ func TestBuildSuccess_AttachmentColorIsGood(t *testing.T) {
 	t.Parallel()
 	p := notify.BuildSuccess(notify.Success{
 		Host: "h1", Check: "c1", Type: "run", Time: time.Now(),
-	}, notify.Options{})
+	})
 	if len(p.Attachments) != 1 {
 		t.Fatalf("expected 1 attachment, got %d", len(p.Attachments))
 	}
@@ -360,7 +357,7 @@ func TestBuildSuccess_FieldsCarryExitZero(t *testing.T) {
 	ts := time.Date(2026, 6, 30, 14, 23, 15, 0, time.UTC)
 	p := notify.BuildSuccess(notify.Success{
 		Host: "h1", Check: "c1", Type: "run", Time: ts,
-	}, notify.Options{})
+	})
 	fields := p.Attachments[0].Fields
 	want := []notify.Field{
 		{Title: "host", Value: "h1", Short: true},

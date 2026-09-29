@@ -1,199 +1,75 @@
-# Checkers
+# checker
 
-本 doc は 5 種類の checker (`http` / `deadman` / `file` / `container` / `cmd`) それぞれの field と評価 logic を定義する。用語の定義は [architecture.md § 用語](architecture.md#用語) を、`checks[]` の設定位置と探索順は [configuration.md](configuration.md) を参照する。
+checker の種類ごとに、何を見て、どうなったら失敗とするかをまとめる。どの種類にも共通の field (`name` / `interval` / `expect` / `confirm` / `timeout`) は [configuration.md](configuration.md#check-に共通の-field) にある。
 
-## 概要
+| `type` | 見るもの | 失敗の例 |
+|---|---|---|
+| `http` | HTTP の応答 | status が違う、body に期待する文字列が無い、応答が遅い |
+| `deadman` | job から `ping` が届いているか | 最後の `ping` から時間が経ちすぎている |
+| `file` | ファイルの有無・更新時刻・サイズ | backup のファイルが 1 日以上更新されていない |
+| `container` | container が動いているか | container が止まっている |
+| `cmd` | 任意のコマンドの結果 | exit code が 0 でない |
 
-| Type | `expect` の演算子 | 用途 | 依存する外部リソース |
-|---|---|---|---|
-| `http` | `status` / `body_contains` / `body_jsonpath` / `latency_under` | HTTP endpoint の応答監視 | 監視対象の HTTP endpoint |
-| `deadman` | `within` | 指定時間内に job が `ping` を送ったかを判定する dead-man's switch | heartbeat file |
-| `file` | `exists` / `mtime_within` / `size_min` / `size_max` | file の生成・更新の監視 | ローカル filesystem |
-| `container` | `running` | Docker / podman container の稼働状態 | Docker Engine API socket |
-| `cmd` | `exit_code` / `stdout_contains` / `stderr_not_contains` | 任意コマンドの exit code 判定 (escape hatch) | 実行環境 (shell / 外部 binary) |
+checker は 1 回評価するだけで、やり直しは `confirm` の再確認に任せる。失敗したときに通知へ載る値の例は [notify.md](notify.md#payload) にある。
 
-`checks[]` は active checker (`http` / `file` / `container` / `cmd`) と `deadman` checker を混在させる 1 本の list である。
-
-## 共通フィールド
-
-全 checker は `type`、`interval`、`expect` を必須とし、任意で `name` と `confirm` を取る。checker 固有の field (`http` の `url`、`file` の `path` など) は各節で定義する。
-
-### `type` / `interval` / `expect`
-
-| Field | 意味 |
-|---|---|
-| `type` | `"http"` / `"deadman"` / `"file"` / `"container"` / `"cmd"` のいずれか |
-| `interval` | 通常の評価間隔 (duration) |
-| `expect` | 判定条件を集約する object |
-
-`interval` の解釈:
-
-- 単位は duration。書式は [configuration.md § 値の型](configuration.md#値の型) を参照する。
-- 推奨下限は 1h である。過剰通知の抑制は `interval` の値で調整する。
-- `mitsume check` (外部 cron 用の 1 回実行) は `interval` を無視し、呼び出し 1 回で全 check を 1 回ずつ評価する。
-- `mitsume watch` (常駐) は `interval` ごとに 1 サイクル評価する。
-
-`expect` の総則:
-
-- 判定条件を集約する 1 個の object である。checker 固有の判定条件は必ず `expect` の中に置く。
-- 演算子はすべて optional であり、複数を併用した場合は AND で評価する。
-- 任意式の eval、数値比較 (`gt` / `lt`) は演算子に含めない。数値閾値が必要な場合は `cmd` checker を使用する。
-- 各 checker の演算子は以下の checker 別の節で定義する。
-
-### `name`
-
-省略時は `type` 別ルールで自動生成する。
-
-| Type | 自動生成元 |
-|---|---|
-| `http` | `url` |
-| `file` | `path` または `path_glob` |
-| `cmd` | `command` 先頭 32 文字 |
-| `container` | `container` field |
-| `deadman` | `job` をそのまま使う |
-
-`checks[]` 内で `name` は自動生成後を含めて一意でなければならない。重複は起動時 validation でエラーとする。
-
-### `confirm`
-
-failure 検知後の連続確認 (confirm burst) の設定である。default および schema は [configuration.md § `confirm`](configuration.md#confirm) を参照する。設計上の理由は [architecture.md § Failure confirmation](architecture.md#failure-confirmation) を参照する。
-
-### `defaults` からの継承
-
-top-level の `defaults` object に書いた値を各 check の初期値として継承する。個別 check で同名 field を指定した場合は個別値が優先する。
-
-```json
-{
-  "defaults": {
-    "interval": "1h",
-    "timeout": "10s"
-  },
-  "checks": [
-    { "type": "http", "url": "https://a.example.com/health", "expect": { "status": 200 } },
-    { "type": "http", "url": "https://b.example.com/health", "interval": "30m", "expect": { "status": 200 } }
-  ]
-}
-```
-
-上の例では 1 番目の `interval` は `1h` (継承)、2 番目は `30m` (上書き) である。`defaults` の対象は `interval` と `timeout` のみである。`confirm` / `expect` / `name` / checker 固有 field は継承しない。
-
-## Checker 側の `--dry-run` の挙動
-
-- checker の実測は行う。HTTP request の送信、file の stat、container socket の呼び出し、cmd の exec を含む。
-- 通知を Slack に送信せず、payload を stderr に出力する。
-- heartbeat file への書き込みは checker からは発生しない (`deadman` checker のみが `--dry-run` の有無にかかわらず read-only で参照する)。書き込みは `ping` subcommand のみが行う (詳細は [heartbeat.md § Dry-run](heartbeat.md#dry-run) を参照)。
-
-`--dry-run` 全体の挙動は [cli.md § 共通 flag](cli.md#共通-flag) を参照する。
-
-## HTTP checker
-
-`type: "http"` の checker である。HTTP endpoint を呼び出し、status / body / latency で判定する。
+## http
 
 ```json
 {
   "type": "http",
   "name": "api-health",
   "url": "https://api.example.com/health",
-  "method": "GET",
   "interval": "1h",
-  "timeout": "10s",
   "expect": {
     "status": 200,
-    "body_jsonpath": [
-      { "path": "$.status", "equals": "ok" }
-    ],
+    "body_jsonpath": [{ "path": "$.status", "equals": "ok" }],
     "latency_under": "3s"
   }
 }
 ```
 
-`expect` に 1 項目だけ書く最小例:
+| field | 省略したとき | 説明 |
+|---|---|---|
+| `url` | 省略できない | 呼ぶ URL |
+| `method` | `GET` | HTTP method |
+| `headers` | 付けない | request header の object |
+| `body` | 送らない | request body の文字列 |
 
-```json
-{
-  "type": "http",
-  "url": "https://api.example.com/health",
-  "interval": "1h",
-  "expect": { "status": 200 }
-}
-```
+`expect` には次の条件を 1 つ以上書く。
 
-### Fields
-
-必須:
-
-| Field | 意味 |
+| 条件 | 成功とするとき |
 |---|---|
-| `type` | `"http"` |
-| `url` | 監視対象 URL |
-| `interval` | 評価間隔 |
-| `expect` | 判定条件 |
+| `status` | status code が一致する (100〜599 の整数) |
+| `body_contains` | body に文字列が含まれる。`Content-Type` は見ず、byte 列のまま比べる |
+| `body_jsonpath` | body を JSON として読み、すべてのルールを満たす (下の例) |
+| `latency_under` | request を送ってから body を読み終わるまでの時間が、この値より短い |
 
-任意:
+`status` を書かなければ status code は見ない。500 が返っても、他の条件を満たせば成功になる。
 
-| Field | 意味 |
-|---|---|
-| `name` | 表示ラベル |
-| `confirm` | confirm burst 設定 |
-| `method` | HTTP method (default `"GET"`) |
-| `headers` | 送信 request header の object (例: `{ "Authorization": "Bearer ..." }`) |
-| `body` | 送信 request body (string) |
-| `timeout` | 1 回あたりの HTTP timeout (duration)。default は `defaults.timeout` |
-
-### `expect` operators
-
-| Key | 意味 | 例 |
-|---|---|---|
-| `status` | HTTP status の完全一致 (整数) | `200` |
-| `body_contains` | response body の部分文字列 match | `"ok"` |
-| `body_jsonpath` | response body を JSON parse し JSONPath で評価 | 下記参照 |
-| `latency_under` | response 完了までの上限時間 (duration) | `"3s"` |
-
-`body_jsonpath` は `[{ "path": "$....", "<op>": <value> }, ...]` の配列である。各要素を AND で評価する。演算子は 4 つのみを許容する。
-
-`path` は書式を絞る。dot notation の property access と array index の組み合わせのみを許容する。
-
-| 書式 | 例 | 意味 |
-|---|---|---|
-| `$` | `$` | root |
-| `$.<field>` | `$.status` | root 直下の property |
-| `$.<field>.<sub>` | `$.data.value` | ネストされた property |
-| `$.<field>[N]` | `$.items[0]` | 配列 index (0 origin) |
-| `$.<field>[N].<sub>` | `$.items[0].id` | 配列要素の property |
-
-bracket notation (`['key']`)、再帰探索 (`..`)、wildcard (`*`)、filter (`?(...)`)、slice (`[a:b]`) は許容しない。field 名の文字集合は英数字と `_`、`-` のみである。
-
-| Operator | 意味 | 適用型 |
-|---|---|---|
-| `equals` | 完全一致 | string / number / bool |
-| `contains` | 部分一致 | string |
-| `regex` | 正規表現 match (RE2 構文) | string |
-| `exists` | field が JSON 上に存在するか | bool (`true` / `false`) |
-
-配列で複数演算子を組み合わせる例:
+`body_jsonpath` は、`path` と演算子 1 つを組にしたルールの配列である。
 
 ```json
 "body_jsonpath": [
   { "path": "$.status", "equals": "ok" },
   { "path": "$.errors", "exists": false },
-  { "path": "$.version", "regex": "^v\\d+\\.\\d+" }
+  { "path": "$.items[0].version", "regex": "^v\\d+" }
 ]
 ```
 
-### Behavior
+| 演算子 | 成功とするとき |
+|---|---|
+| `equals` | 値が一致する (文字列・数・真偽値) |
+| `contains` | 文字列の値が、指定した文字列を含む |
+| `regex` | 文字列の値が正規表現 (RE2) に一致する |
+| `exists` | `true` なら path がある、`false` なら path が無い |
 
-- TLS 検証は常に有効である。無効化 flag は持たない。
-- redirect は最大 10 hop まで自動追跡する。
-- retry は `confirm` に一本化する。checker 側で独立した retry は行わない。
-- connection error、timeout、TLS handshake 失敗は failure と判定する。
-- `status` を書かなかった場合は status の判定を行わない (2xx / 3xx を暗黙成功にしない)。
-- `body_jsonpath` は response body が JSON parse 可能であることを前提とする。JSON parse 失敗は failure と判定する。
-- `body_contains` は raw byte 上での部分文字列 match である。`Content-Type` に関係なくそのまま照合する。
-- `timeout` は checker の `timeout` → `defaults.timeout` → 暗黙 default `30s` の順で解決する。`watch` を無期限にハングさせないための上限であり、この暗黙 default を無効化する手段は提供しない。
+`path` は `$` から始め、`.field` と `[N]` だけを組み合わせて書く。field 名に使えるのは英数字と `_` `-` で、`..`、`*`、`['key']`、filter は使えない。
 
-## Deadman checker
+- 接続できない、timeout した、TLS の検証に失敗した、`body_jsonpath` があるのに body が JSON でない、のいずれも失敗になる
+- TLS の検証は常に行い、無効にする設定は無い
+- redirect は 10 回まで追い、最後の応答で判定する
 
-`type: "deadman"` の checker である。指定 job が指定時間内に `ping` を送ったかを判定する dead-man's switch の実装である。`ping` subcommand が heartbeat file に書き込む per-job の `last_ping_at` を読み、`expect.within` を超えて古い場合を failure と判定する。
+## deadman
 
 ```json
 {
@@ -204,180 +80,79 @@ bracket notation (`['key']`)、再帰探索 (`..`)、wildcard (`*`)、filter (`?
 }
 ```
 
-### Fields
-
-必須:
-
-| Field | 意味 |
+| field | 説明 |
 |---|---|
-| `type` | `"deadman"` |
-| `job` | 監視対象 job の一意識別子。書式は `[a-zA-Z0-9_-]{1,64}` |
-| `interval` | heartbeat file を再読して `within` 判定を回す schedule 間隔。外部への polling は発生せず、短くしても評価 cost は増えない (詳細は Behavior 節を参照) |
-| `expect` | `within` を含む object |
+| `job` | 見張る job の名前。`[a-zA-Z0-9_-]{1,64}` で、`checks[]` の中で重複できない |
+| `expect.within` | 最後の `ping` から許す時間。省略できない |
 
-任意:
+評価のたびに heartbeat file を読み、最後の `ping` から `within` 以上経っていれば失敗にする。一度も `ping` が届いていない job も失敗になる。仕組みと heartbeat file の場所は [heartbeat.md](heartbeat.md) にある。
 
-| Field | 意味 |
-|---|---|
-| `name` | 表示ラベル。省略時は `job` をそのまま使う |
-| `confirm` | confirm burst 設定 |
+`within` は「job の実行間隔 + 監視側の評価の間隔 + 余裕」を目安にする。毎日走る job を 1 時間ごとに評価するなら `25h`、毎時走る job を 1 時間ごとに評価するなら `2h30m` くらいになる。
 
-### `expect` operators
+判定は heartbeat file を読むだけで済み、外に問い合わせないので、`interval` を短くしても負荷はほとんど増えない。
 
-| Key | 意味 | 例 |
-|---|---|---|
-| `within` | 最後の `ping` から許容できる経過時間 (duration) | `"25h"` |
-
-### Behavior
-
-- heartbeat file から read-only で `jobs.<job>.last_ping_at` を参照する。file の schema は [heartbeat.md](heartbeat.md) を参照する。
-- heartbeat file に該当 job の record が存在しない状態 (一度も `ping` を受けていない状態) は failure と判定する。
-- 判定は `now - last_ping_at >= expect.within` で完結する。外部 endpoint への polling を発生させないため、`interval` を短くしても実測 cost は増えない。
-- `job` は `checks[]` 内 (および `type: "deadman"` 同士) で重複してはならない。
-- `mitsume ping <job>` の位置引数の解決順は [cli.md § mitsume ping](cli.md#mitsume-ping) を参照する。
-
-## File checker
-
-`type: "file"` の checker である。ローカル filesystem 上の file の存在、mtime、size で判定する。バックアップ成果物や、外部プロセスが書き出す health file の監視に用いる。
-
-固定 path を見る例:
+## file
 
 ```json
 {
   "type": "file",
-  "name": "app-health-file",
-  "path": "/var/log/app/health.json",
-  "interval": "1h",
-  "expect": { "exists": true, "mtime_within": "10m" }
-}
-```
-
-glob で match した中から mtime 最新 1 個を見る例:
-
-```json
-{
-  "type": "file",
-  "name": "db-backup-artifact",
+  "name": "db-backup",
   "path_glob": "/backup/db-*.dump",
   "interval": "1h",
   "expect": { "exists": true, "mtime_within": "25h", "size_min": "100MB" }
 }
 ```
 
-### Fields
-
-必須:
-
-| Field | 意味 |
+| field | 説明 |
 |---|---|
-| `type` | `"file"` |
-| `path` または `path_glob` | 監視対象 path。どちらか一方のみを指定する |
-| `interval` | 評価間隔 |
-| `expect` | 判定条件 |
+| `path` | 見るファイルの path |
+| `path_glob` | 見るファイルの glob。一致したもののうち、更新時刻が一番新しい 1 つだけを見る |
 
-任意:
+`path` と `path_glob` はどちらか一方だけを書く。
 
-| Field | 意味 |
+`expect` には次の条件を 1 つ以上書く。
+
+| 条件 | 成功とするとき |
 |---|---|
-| `name` | 表示ラベル。省略時は `path` または `path_glob` を使う |
-| `confirm` | confirm burst 設定 |
+| `exists` | `true` ならファイルがある、`false` なら無い |
+| `mtime_within` | 最後に更新されてから、この時間が経っていない |
+| `size_min` / `size_max` | サイズがこの値以上 / 以下 ([size の書き方](configuration.md#size)) |
 
-### `expect` operators
+- ファイルが無いとき (`path_glob` に一致するものが無いときも)、`exists: false` なら成功、それ以外は失敗になる
+- ファイルの中身は読まず、属性だけを見る。symlink はたどる。属性を取れなければ (親ディレクトリの権限が無いなど) 失敗になる
+- 中身を確かめたいときは `cmd` checker で `grep` などを呼ぶ
 
-| Key | 意味 | 例 |
-|---|---|---|
-| `exists` | file が存在するか | `true` / `false` |
-| `mtime_within` | 最終更新時刻が指定 duration 以内か | `"25h"` |
-| `size_min` | 最小 size | `"100MB"` / `1024` |
-| `size_max` | 最大 size | `"10GB"` |
-
-size 表記は [configuration.md § 値の型](configuration.md#値の型) を参照する。
-
-### Behavior
-
-- `path` と `path_glob` は排他である。両方指定、または両方未指定は validation でエラーとする。
-- `path_glob` で複数 match した場合は mtime 最新の 1 個のみを評価対象とする。
-- match が 0 件の場合、`expect.exists: true` は failure、`expect.exists: false` は success と判定する。
-- file の中身は読まず、ファイル属性 (存在、mtime、size) のみを参照する。read 権限がなくても属性を取得できれば判定可能である。
-- 属性取得に失敗した場合 (permission denied、親 directory 不在など) は failure と判定する。
-- file 内容に対する条件が必要な場合は `cmd` checker で `grep` を呼び出す。
-
-## Container checker
-
-`type: "container"` の checker である。Docker / podman container の稼働状態を判定する。Docker Engine API の `/containers/<container>/json` を UNIX domain socket 経由で直接呼び出し、返り値の container status を評価する。Docker SDK を使わない理由は [architecture.md § Design decisions](architecture.md#design-decisions) を参照する。
-
-`engine` を明示する例:
+## container
 
 ```json
 {
   "type": "container",
-  "container": "jellyfin",
-  "engine": "docker",
+  "container": "myapp-web-1",
   "interval": "1h",
   "expect": { "running": true }
 }
 ```
 
-`engine` を自動検出させる例:
-
-```json
-{
-  "type": "container",
-  "container": "myproject-api-1",
-  "interval": "1h",
-  "expect": { "running": true }
-}
-```
-
-### Fields
-
-必須:
-
-| Field | 意味 |
+| field | 説明 |
 |---|---|
-| `type` | `"container"` |
-| `container` | container 名または id。docker compose の場合は `{project}-{service}-{N}` を直接指定する |
-| `interval` | 評価間隔 |
-| `expect` | 判定条件 |
+| `container` | container の名前か id。Docker Compose の container は `<project>-<service>-<N>` の名前で書く |
+| `engine` | `docker` か `podman`。省略すると docker、podman の順に socket を探す |
+| `expect.running` | `true` なら動いていれば成功、`false` なら止まっていれば成功。省略できない |
 
-任意:
+Docker Engine API の `/v1.43/containers/<container>/json` を UNIX domain socket 越しに呼び、`State.Status` が `running` かどうかを見る。container が見つからなければ失敗になる。1 回の評価は 30 秒で打ち切り、この時間は変えられない。
 
-| Field | 意味 |
+socket は次の順に探す。
+
+| `engine` | 探す順 |
 |---|---|
-| `name` | 表示ラベル。省略時は `container` field をそのまま使う |
-| `confirm` | confirm burst 設定 |
-| `engine` | `"docker"` または `"podman"`。省略時は自動検出する |
+| `docker` | `DOCKER_HOST` (`unix://` で始まるときだけ)、`/var/run/docker.sock` |
+| `podman` | `$XDG_RUNTIME_DIR/podman/podman.sock`、`/run/podman/podman.sock` |
 
-### `expect` operators
+socket は起動したときに探し、見つからなければ exit 1 になる。mitsume を動かすユーザーが socket を読めるようにしておく ([recipes.md](recipes.md#container-を監視する))。
 
-| Key | 意味 | 例 |
-|---|---|---|
-| `running` | container status が `running` であるか | `true` |
+## cmd
 
-### Behavior
-
-- Docker Engine API `GET /v1.43/containers/<container>/json` を UNIX domain socket 経由で呼び出し、返り値の container status を評価する。
-- socket path の探索順は次の通りである。
-  - `engine: "docker"` — `$DOCKER_HOST` (`unix://` 形式のみ) → `/var/run/docker.sock`
-  - `engine: "podman"` — `$XDG_RUNTIME_DIR/podman/podman.sock` → `/run/podman/podman.sock`
-  - `engine` 省略 — docker socket → podman socket の順で自動探索
-- 起動時 validation で socket が見つからない場合は fail-fast する。
-- checker 側では `timeout` config field を持たず、`defaults.timeout` も継承しない。1 回の評価あたり 30s の上限を内部で適用する。socket の停止による無期限のハングを防ぐためであり、この値は変更できない。
-- Docker の `HEALTHCHECK` 連動 (`.State.Health.Status`) は提供しない。`expect.healthy` field も持たない。
-- リモート host の container 監視は対象外である。`mitsume watch` は container host 上で動かす前提となる。
-
-## Cmd checker
-
-`type: "cmd"` の checker である。任意の外部コマンドを実行し、exit code / stdout / stderr で判定する escape hatch である。他 checker で吸収しにくい判定 (数値閾値、外部 CLI 依存、既存 systemd service の傍観など) は本 checker に集約する。
-
-典型的な使い方:
-
-| 用途 | `command` 例 |
-|---|---|
-| disk 残量 | `["/bin/sh", "-c", "test $(df --output=pcent /data | tail -1 | tr -dc 0-9) -lt 90"]` |
-| TLS cert 期限 | `["openssl", "x509", "-checkend", "604800", "-noout", "-in", "/etc/ssl/cert.pem"]` |
-| systemd service | `["systemctl", "is-active", "foo.service"]` |
-| pid file 生存 | `["/bin/sh", "-c", "kill -0 $(cat /var/run/foo.pid)"]` |
+他の checker で見られないもの (ディスクの残量、証明書の期限、systemd の service の状態など) を、任意のコマンドの結果で判定する。
 
 ```json
 {
@@ -385,55 +160,25 @@ size 表記は [configuration.md § 値の型](configuration.md#値の型) を�
   "name": "tls-cert-expiry",
   "command": ["openssl", "x509", "-checkend", "604800", "-noout", "-in", "/etc/ssl/cert.pem"],
   "interval": "24h",
-  "timeout": "10s",
   "expect": { "exit_code": 0 }
 }
 ```
 
-### Fields
-
-必須:
-
-| Field | 意味 |
-|---|---|
-| `type` | `"cmd"` |
-| `command` | 実行コマンド (`string[]`)。shell を経由せず直接 exec する |
-| `interval` | 評価間隔 |
-| `expect` | 判定条件 |
-
-任意:
-
-| Field | 意味 |
-|---|---|
-| `name` | 表示ラベル。省略時は `command` 先頭 32 文字 |
-| `confirm` | confirm burst 設定 |
-| `env` | 追加 env の object (例: `{ "KEY": "value" }`) |
-| `cwd` | 実行時のカレント directory |
-| `timeout` | 1 回あたりの実行 timeout (duration)。default は `defaults.timeout` |
-
-### `expect` operators
-
-| Key | 意味 | 例 |
+| field | 省略したとき | 説明 |
 |---|---|---|
-| `exit_code` | 期待する exit code (default `0`) | `0` |
-| `stdout_contains` | stdout に含まれるべき部分文字列 | `"active"` |
-| `stderr_not_contains` | stderr に含まれてはならない部分文字列 | `"panic"` |
+| `command` | 省略できない | 実行するコマンドの配列。shell を通さずに実行する |
+| `env` | 足さない | 追加する環境変数の object。mitsume の環境変数に足し、同じ名前なら上書きする |
+| `cwd` | mitsume のカレントディレクトリ | 実行するディレクトリ |
 
-### Behavior
+`expect` の条件は次のとおりで、何も書かなければ exit code 0 で成功になる。
 
-- `command` は配列で直接 exec する。shell interpolation、pipe、redirect が必要な場合は `["/bin/sh", "-c", "<script>"]` の形式で明示的に呼び出す。
-- `timeout` 超過時は `SIGTERM` を送信し、grace period 経過後に `SIGKILL` を送信する。
-- 上記 timeout kill が発火した場合、`expect.exit_code` との比較用の観測値として `124` (GNU `timeout(1)` 慣習) を採用する。`expect.exit_code` を省略した場合の default は `0` のため、通常 timeout は必ず failure と判定する。timeout kill を success として扱いたい場合は `expect.exit_code: 124` を明示する。
-- `timeout` は checker の `timeout` → `defaults.timeout` → 暗黙 default `30s` の順で解決する。grace period は `5s` 固定であり、`timeout` field や `defaults` からの継承、設定 JSON 側での上書きは受け付けない。
-- `stdout_contains` と `stderr_not_contains` は子プロセスの buffer 全体 (起動から終了まで) を対象に評価する。通知 payload に載せる stderr 末尾 (20 行または 2KB のいずれか小さい方) は表示用の切り詰めであり、判定には影響しない。この切り詰め幅は固定であり、設定 JSON からの上書きは受け付けない (`mitsume run --stderr-tail-*` は cmd checker には効かない)。
-- 失敗通知には exit code と stderr 末尾を含める。payload の詳細は [notify.md § Payload](notify.md#payload) を参照する。
-- `expect.exit_code` を省略した場合の default は `0` である (成功終了以外は failure)。
-- 環境変数は親プロセスの env と `env` field の union を渡す (`env` が優先)。
+| 条件 | 成功とするとき |
+|---|---|
+| `exit_code` | exit code が一致する (省略すると 0) |
+| `stdout_contains` | stdout に文字列が含まれる |
+| `stderr_not_contains` | stderr に文字列が含まれない |
 
-## 関連
-
-- [architecture.md](architecture.md) — core components、failure confirmation、design decisions の背景
-- [configuration.md](configuration.md) — 設定 JSON schema、`defaults` の継承、value types
-- [notify.md](notify.md) — Slack payload と delivery retry
-- [heartbeat.md](heartbeat.md) — heartbeat file の schema (`deadman` の依存先)
-- [cli.md](cli.md) — `ping` / `check` / `watch` / `run` / `notify` の呼び分け
+- pipe やリダイレクトなど shell の機能が要るときは、`["/bin/sh", "-c", "test $(df --output=pcent /data | tail -1 | tr -dc 0-9) -lt 90"]` のように shell を明示して呼ぶ
+- `timeout` を過ぎたら SIGTERM を送り、5 秒経っても終わらなければ SIGKILL を送る。このときの exit code は 124 として判定するので、`exit_code` が 0 なら失敗になる
+- `stdout_contains` と `stderr_not_contains` は出力の全体に対して判定する
+- 失敗の通知には stderr の末尾を付ける ([notify.md](notify.md#payload))

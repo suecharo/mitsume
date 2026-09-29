@@ -25,8 +25,7 @@ func TestRun_UnknownSubcommandExits1(t *testing.T) {
 }
 
 func TestRun_RunWithoutCommandExits1(t *testing.T) {
-	// mitsume run は `--` 以降に <cmd> が必須 (docs/cli.md § run § 引数)。
-	// 未指定なら exit 1。
+	// `--` 以降の <cmd> が無ければ exit 1。
 	if code := run([]string{"run"}); code != 1 {
 		t.Fatalf("run([\"run\"]) = %d, want 1", code)
 	}

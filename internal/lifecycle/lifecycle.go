@@ -1,7 +1,5 @@
-// Package lifecycle は watch サブコマンドと run サブコマンドが共有する
-// panic recover / graceful shutdown announcement / dry-run 対応 notifier を
-// 提供する。仕様は docs/architecture.md § 自身の死活 と docs/cli.md § watch /
-// docs/notify.md § --dry-run 時の挙動 に従う。
+// Package lifecycle は check / watch / run が共有する、dry-run に対応した
+// notifier と、process の停止・panic を知らせる通知を提供する。
 package lifecycle
 
 import (
@@ -15,24 +13,20 @@ import (
 	"github.com/suecharo/mitsume/internal/notify"
 )
 
-// Sender は Slack Incoming Webhook への 1 通送信の抽象。notify.Client と
-// test 用 fake の共通 interface。
+// Sender は 1 通の送信。notify.Client とテスト用の fake が実装する。
 type Sender interface {
 	Send(ctx context.Context, payload notify.SlackPayload) error
 }
 
-// Notifier は dry-run 分岐込みの notify wrapper。DryRun=true なら Sender を
-// 呼ばず Stderr に payload を JSON で書き出す (docs/notify.md § --dry-run
-// 時の挙動)。Stderr nil の場合は os.Stderr を使う。
+// Notifier は DryRun のとき Sender を呼ばず、payload を JSON で Stderr に書く。
+// Stderr が nil なら os.Stderr を使う。
 type Notifier struct {
-	Sender  Sender
-	Options notify.Options
-	DryRun  bool
-	Stderr  io.Writer
+	Sender Sender
+	DryRun bool
+	Stderr io.Writer
 }
 
-// Send は payload を送信する。DryRun 時は Sender を呼ばずに JSON pretty print
-// を Stderr に書く。
+// Send は payload を送る。
 func (n *Notifier) Send(ctx context.Context, payload notify.SlackPayload) error {
 	if n.DryRun {
 		w := n.Stderr
@@ -54,38 +48,28 @@ func (n *Notifier) Send(ctx context.Context, payload notify.SlackPayload) error 
 	return n.Sender.Send(ctx, payload)
 }
 
-// SendShutdown は SIGINT / SIGTERM 由来の graceful shutdown を Slack へ
-// best-effort で通知する。docs/cli.md § watch 動作 の text 形式に従い、
-// attachments は付けない (severity 概念を持たないため)。
+// SendShutdown は watch の停止を知らせる。
 func SendShutdown(ctx context.Context, n *Notifier, host, signalName string, now time.Time) error {
 	text := fmt.Sprintf("[mitsume] watch stopped on host=%s (signal=%s, time=%s)",
 		host, signalName, now.Format(time.RFC3339))
-	payload := notify.BuildAnnouncement(text, n.Options)
 
-	return n.Send(ctx, payload)
+	return n.Send(ctx, notify.BuildAnnouncement(text))
 }
 
-// SendPanicNotice は panic を Slack に通知する payload を作って送る。
-// docs/architecture.md § 自身の死活 の「recover → notify → re-panic」の
-// notify 部分に対応する。subcommand は通知文の「どのサブコマンドで起きたか」
-// を識別する短い名前 (例: "check" / "watch")。best-effort なので、返り値の
-// error は呼び出し側が適宜 stderr にログするだけで re-panic を止めない。
+// SendPanicNotice は panic を知らせる。subcommand は "check" / "watch" など。
 func SendPanicNotice(ctx context.Context, n *Notifier, subcommand, host string, panicVal any, now time.Time) error {
 	if subcommand == "" {
 		subcommand = "unknown"
 	}
 	text := fmt.Sprintf("[mitsume] %s panicked on host=%s (panic=%v, time=%s)",
 		subcommand, host, panicVal, now.Format(time.RFC3339))
-	payload := notify.BuildAnnouncement(text, n.Options)
 
-	return n.Send(ctx, payload)
+	return n.Send(ctx, notify.BuildAnnouncement(text))
 }
 
-// GuardPanic は fn を実行し、panic を捕捉したら best-effort で notify を打った
-// 後、同じ panic 値で re-panic する。呼び出し側は defer で recover して
-// os.Exit(...) するか、そのまま Go runtime に握らせて stack trace 出力
-// + exit code 2 で die させる (docs/cli.md § watch § exit code)。clockNow が
-// nil なら time.Now が使われる。subcommand は SendPanicNotice にそのまま渡す。
+// GuardPanic は fn の panic を捕捉して通知を送り、同じ値で panic し直す。
+// 通知に失敗しても panic し直すことは止めず、process は Go runtime によって
+// exit code 2 で終わる。clockNow が nil なら time.Now を使う。
 func GuardPanic(ctx context.Context, n *Notifier, subcommand, host string, clockNow func() time.Time, fn func()) {
 	defer func() {
 		r := recover()

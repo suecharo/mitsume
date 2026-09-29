@@ -45,7 +45,7 @@ func TestNotifier_Send_CallsUnderlyingSender(t *testing.T) {
 	t.Parallel()
 	sender := &recordingSender{}
 	n := &lifecycle.Notifier{Sender: sender}
-	payload := notify.BuildAnnouncement("hello", notify.Options{})
+	payload := notify.BuildAnnouncement("hello")
 	if err := n.Send(context.Background(), payload); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestNotifier_Send_DryRunWritesJSONToStderrAndSkipsSender(t *testing.T) {
 	sender := &recordingSender{}
 	var buf bytes.Buffer
 	n := &lifecycle.Notifier{Sender: sender, DryRun: true, Stderr: &buf}
-	payload := notify.BuildAnnouncement("hi", notify.Options{Username: "u"})
+	payload := notify.BuildAnnouncement("hi")
 	if err := n.Send(context.Background(), payload); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestNotifier_Send_DryRunWritesJSONToStderrAndSkipsSender(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &back); err != nil {
 		t.Fatalf("stderr is not valid JSON payload: %v (raw=%q)", err, buf.String())
 	}
-	if back.Text != "hi" || back.Username != "u" {
+	if back.Text != "hi" {
 		t.Fatalf("payload round-trip mismatch, got %+v", back)
 	}
 }
@@ -79,7 +79,7 @@ func TestNotifier_Send_DryRunWritesJSONToStderrAndSkipsSender(t *testing.T) {
 func TestNotifier_Send_SenderNilNonDryRunErrors(t *testing.T) {
 	t.Parallel()
 	n := &lifecycle.Notifier{Sender: nil, DryRun: false}
-	err := n.Send(context.Background(), notify.BuildAnnouncement("x", notify.Options{}))
+	err := n.Send(context.Background(), notify.BuildAnnouncement("x"))
 	if err == nil {
 		t.Fatalf("expected error for nil Sender in non-dry-run mode")
 	}
@@ -88,7 +88,7 @@ func TestNotifier_Send_SenderNilNonDryRunErrors(t *testing.T) {
 func TestSendShutdown_UsesAnnouncementWithoutAttachments(t *testing.T) {
 	t.Parallel()
 	sender := &recordingSender{}
-	n := &lifecycle.Notifier{Sender: sender, Options: notify.Options{Username: "mitsume"}}
+	n := &lifecycle.Notifier{Sender: sender}
 	now := time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC)
 	if err := lifecycle.SendShutdown(context.Background(), n, "api-prod-01", "SIGTERM", now); err != nil {
 		t.Fatalf("SendShutdown: %v", err)
@@ -105,9 +105,6 @@ func TestSendShutdown_UsesAnnouncementWithoutAttachments(t *testing.T) {
 		"api-prod-01", "SIGTERM", now.Format(time.RFC3339))
 	if p.Text != wantText {
 		t.Fatalf("text mismatch\n got: %q\nwant: %q", p.Text, wantText)
-	}
-	if p.Username != "mitsume" {
-		t.Fatalf("Options.Username should propagate, got %q", p.Username)
 	}
 }
 

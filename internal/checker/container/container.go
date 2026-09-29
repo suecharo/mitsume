@@ -1,7 +1,6 @@
-// Package container は container checker (docker / podman) を実装する。仕様は
-// docs/checkers.md § container checker と docs/architecture.md § container
-// checker の実装方針 に従う。Docker Engine API の /v1.43/containers/<id>/json
-// を unix socket 経由で直接叩き、.State.Status を判定する。
+// Package container は container checker (docker / podman) を実装する。
+// Docker Engine API の /v1.43/containers/<id>/json を unix socket 経由で直接
+// 叩き、.State.Status を判定する。
 package container
 
 import (
@@ -61,8 +60,7 @@ type Options struct {
 }
 
 // DefaultsFallback は defaults セクションから container checker が継承する値。
-// docs/configuration.md § defaults は timeout を HTTP / cmd checker に限定して
-// おり、container は timeout を継承しないので Interval のみ。
+// container は timeout を継承しないので Interval のみ。
 type DefaultsFallback struct {
 	Interval time.Duration
 }
@@ -80,7 +78,7 @@ type Checker struct {
 }
 
 // Parse は raw JSON + Options を検証して Checker を作る。socket 探索は起動時
-// validation として fail-fast (docs/architecture.md § container checker)。
+// validation として fail-fast する。
 func Parse(raw json.RawMessage, opts Options) (*Checker, error) {
 	var cfg Config
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -150,8 +148,7 @@ func newSocketClient(path string) *http.Client {
 }
 
 // CandidatePaths は engine ("docker" / "podman" / "") に対する socket 探索順を
-// 返す。docs/checkers.md § container checker § 固有の挙動 の順序に従う。
-// engine=="" のときは docker 候補 → podman 候補 の順で全部返す。テスト側で
+// 返す。engine=="" のときは docker 候補 → podman 候補 の順で全部返す。テスト側で
 // 挙動を差し替えたい場合は Options.CandidatePathsFunc を使う (package-level の
 // mutable state ではなく Parse 呼び出しの引数に固定して race を避ける)。
 func CandidatePaths(engine string) []string {
@@ -196,7 +193,7 @@ func stripUnixScheme(s string) (string, bool) {
 }
 
 // ResolveSocket は engine に応じた socket path を返す。stat で存在確認する。
-// 見つからなければ error (fail-fast の対象、docs/architecture.md § container)。
+// 見つからなければ error。
 func ResolveSocket(engine string) (string, error) {
 	return resolveSocketWith(engine, nil)
 }
@@ -228,7 +225,7 @@ func (c *Checker) Name() string { return c.name }
 // Interval は評価周期。
 func (c *Checker) Interval() time.Duration { return c.interval }
 
-// Confirm は失敗確信 burst 設定。
+// Confirm は confirm の設定。
 func (c *Checker) Confirm() confirm.Config { return c.confirmCfg }
 
 // Container は監視対象 container 名 / id。
@@ -241,10 +238,8 @@ func (c *Checker) Engine() string { return c.engine }
 func (c *Checker) SocketPath() string { return c.socketPath }
 
 // Evaluate は engine socket に HTTP GET /v1.43/containers/<name>/json を投げ、
-// .State.Status を評価する。timeout は checker 単位では持たず、呼び出し側
-// (Phase 3 の runner) の ctx が cancel されるまで待つ。docs/configuration.md
-// § defaults は container を timeout の対象外にしているため、暗黙 timeout も
-// 付けない。
+// .State.Status を評価する。timeout は checker 単位では持たず、ctx の
+// deadline / cancel は呼び出し側 (runner) が制御する。
 func (c *Checker) Evaluate(ctx context.Context) checker.Result {
 	url := fmt.Sprintf("http://engine/%s/containers/%s/json", APIVersion, c.container)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

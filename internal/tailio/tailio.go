@@ -1,13 +1,13 @@
 // Package tailio は byte slice の末尾を「行数上限 or byte 数上限の小さい方」で
-// 切り出す共通ヘルパを提供する。docs/notify.md § payload 形式 の cmd checker /
-// run サブコマンドの stderr 尾切りロジックを 1 実装に集約する。
+// 切り出す共通ヘルパを提供する。cmd checker と run サブコマンドの stderr 尾切りを
+// 1 実装に集約する。
 package tailio
 
 // Truncate は b の末尾から maxLines 行分と maxBytes byte 分の tail を計算し、
 // byte 数が小さい方を返す。maxLines <= 0 なら行数制約を無視、maxBytes <= 0 なら
 // byte 数制約を無視。両方 <= 0 なら b をそのまま返す。
 //
-// 挙動例 (docs/checkers.md § cmd の 20 行 / 2KB 規則との対応):
+// 挙動例 (maxLines=20, maxBytes=2KB の場合):
 //
 //   - 出力が 5 行 / 500B の短い場合: 全体を返す (どちらの制約にも掛からない)
 //   - 出力が 100 行だが 500B 以下の場合: 20 行を返す (行制約が bytes を上回る前に効く)

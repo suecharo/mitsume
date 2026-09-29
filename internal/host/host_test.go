@@ -7,8 +7,17 @@ import (
 	"github.com/suecharo/mitsume/internal/host"
 )
 
-func TestResolve_ConfigHostWins(t *testing.T) {
-	t.Setenv(host.EnvKey, "env-host")
+func osHostname(t *testing.T) string {
+	t.Helper()
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		t.Skipf("os.Hostname unavailable: %q, %v", h, err)
+	}
+
+	return h
+}
+
+func TestResolve_ConfigHostSet_ReturnsConfigHost(t *testing.T) {
 	got, err := host.Resolve("cfg-host")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -18,26 +27,8 @@ func TestResolve_ConfigHostWins(t *testing.T) {
 	}
 }
 
-func TestResolve_EnvWinsWhenConfigEmpty(t *testing.T) {
-	t.Setenv(host.EnvKey, "env-host")
-	got, err := host.Resolve("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "env-host" {
-		t.Fatalf("got %q, want env-host", got)
-	}
-}
-
-func TestResolve_HostnameFallbackWhenBothEmpty(t *testing.T) {
-	t.Setenv(host.EnvKey, "")
-	want, err := os.Hostname()
-	if err != nil {
-		t.Skipf("os.Hostname unavailable: %v", err)
-	}
-	if want == "" {
-		t.Skip("os.Hostname returned empty on this system")
-	}
+func TestResolve_ConfigHostEmpty_ReturnsOSHostname(t *testing.T) {
+	want := osHostname(t)
 	got, err := host.Resolve("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -47,17 +38,14 @@ func TestResolve_HostnameFallbackWhenBothEmpty(t *testing.T) {
 	}
 }
 
-func TestResolve_EmptyEnvValueTreatedAsUnset(t *testing.T) {
-	t.Setenv(host.EnvKey, "")
-	sys, err := os.Hostname()
-	if err != nil || sys == "" {
-		t.Skip("os.Hostname unavailable / empty")
-	}
+func TestResolve_ConfigHostEmpty_IgnoresEnvironment(t *testing.T) {
+	want := osHostname(t)
+	t.Setenv("MITSUME_HOST", "env-host")
 	got, err := host.Resolve("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != sys {
-		t.Fatalf("empty env should be ignored, got %q want %q", got, sys)
+	if got != want {
+		t.Fatalf("got %q, want OS hostname %q", got, want)
 	}
 }

@@ -1,7 +1,6 @@
 // Package supervisor は mitsume run サブコマンドの子プロセス supervisor を
 // 実装する。子の stdout / stderr を親に tee し、stderr は ring buffer に保存
-// して失敗通知に載せる。timeout / grace / signal forward / exit code の詳細は
-// docs/cli.md § run と docs/notify.md § payload 形式 に従う。
+// して失敗通知に載せる。
 package supervisor
 
 import (
@@ -25,7 +24,7 @@ import (
 	"github.com/suecharo/mitsume/internal/tailio"
 )
 
-// exit code 定数 (docs/cli.md § run § exit code)。
+// run の exit code。
 const (
 	// TimeoutExitCode は --timeout 発火で kill した場合の exit code (GNU
 	// timeout(1) 慣習)。
@@ -43,7 +42,7 @@ const (
 	InternalErrorExitCode = 1
 )
 
-// default 値 (docs/cli.md § run の flag default)。
+// Config で 0 のときに使う既定値。
 const (
 	DefaultGracePeriod       = 5 * time.Second
 	DefaultStderrBufferBytes = 16 * 1024
@@ -53,25 +52,22 @@ const (
 
 // Config は Run に渡す実行時パラメータ。
 type Config struct {
-	// Name は表示ラベル (docs/cli.md § 識別子解決)。空なら Command[0] の
-	// basename を使う。
+	// Name は表示ラベル。空なら Command[0] の basename を使う。
 	Name string
 	// Command は子プロセスとその引数 (直接 exec、shell を経由しない)。
 	Command []string
 	// Timeout は子プロセスの実行時間上限。0 なら無制限。
 	Timeout time.Duration
 	// GracePeriod は timeout 発火後 SIGTERM から SIGKILL までの猶予。0 なら
-	// DefaultGracePeriod (5s)。
+	// DefaultGracePeriod。
 	GracePeriod time.Duration
-	// StderrBufferBytes は stderr ring buffer 上限。0 なら DefaultStderrBufferBytes
-	// (16KB)。失敗通知に載せる tail は StderrTailLines と StderrTailBytes の
-	// 小さい方 (bytes) を採用する (docs/cli.md § run § flag)。
+	// StderrBufferBytes は stderr ring buffer 上限。0 なら DefaultStderrBufferBytes。
 	StderrBufferBytes int
 	// StderrTailLines は失敗通知に含める stderr 末尾の最大行数。0 なら
-	// DefaultStderrTailLines (20)。
+	// DefaultStderrTailLines。
 	StderrTailLines int
 	// StderrTailBytes は失敗通知に含める stderr 末尾の最大 byte 数。0 なら
-	// DefaultStderrTailBytes (2KB)。
+	// DefaultStderrTailBytes。
 	StderrTailBytes int
 	// QuietOnSuccess が true なら成功時 (exit 0) は通知しない (失敗時のみ)。
 	QuietOnSuccess bool
@@ -92,8 +88,7 @@ type Config struct {
 	DisableSignalForward bool
 }
 
-// Run は子プロセスを起動して完了を待ち、docs/cli.md § run § exit code の
-// exit code を返す。呼び出し側 (cmd/mitsume/run.go) は os.Exit(int) する想定。
+// Run は子プロセスを起動して完了を待ち、子の結果に応じた exit code を返す。
 func Run(ctx context.Context, cfg Config) int {
 	if cfg.Notifier == nil {
 		fmt.Fprintln(os.Stderr, "mitsume run: notifier is required")
@@ -117,7 +112,7 @@ func Run(ctx context.Context, cfg Config) int {
 
 	// context.Background を渡して exec 内部の ctx-based kill (SIGKILL 直行) を
 	// 無効化する。子の終了制御は waitOrKill が SIGTERM → grace → SIGKILL で自前
-	// 管理する (docs/cli.md § run § 動作)。
+	// 管理する。
 	proc := exec.CommandContext(context.Background(), cfg.Command[0], cfg.Command[1:]...)
 	proc.Stdout = stdout
 	proc.Stderr = io.MultiWriter(stderr, ring)
@@ -210,7 +205,7 @@ func killChild(proc *exec.Cmd, completed <-chan struct{}, grace time.Duration) {
 }
 
 // decodeExit は exec.Cmd.Wait の error を exit code に変換する。signal で
-// kill された場合は 128 + signum (bash 慣習、docs/cli.md § run § exit code)。
+// kill された場合は 128 + signum (bash 慣習)。
 func decodeExit(err error) int {
 	if err == nil {
 		return 0
@@ -234,7 +229,7 @@ func decodeExit(err error) int {
 }
 
 // classifyStartError は proc.Start が返す error を exit code に分類する
-// (bash 慣習、docs/cli.md § run § exit code)。
+// (bash 慣習)。
 func classifyStartError(err error) int {
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 		return CommandNotFoundExitCode
@@ -307,16 +302,14 @@ func formatFailureReason(exitCode int, timedOut bool, timeout time.Duration) str
 	return fmt.Sprintf("exit=%d", exitCode)
 }
 
-// sendSuccess は成功通知を送る。docs/notify.md § Success payload に従い、
-// text 1 行目 [mitsume] <name> succeeded (run: exit=0)、color "good"、
-// observed / expected exit=0 の payload を組み立てる。
+// sendSuccess は成功通知を送る。
 func (cfg Config) sendSuccess(ctx context.Context, name string) {
 	payload := notify.BuildSuccess(notify.Success{
 		Host:  cfg.Host,
 		Check: name,
 		Type:  "run",
 		Time:  nowFn(cfg),
-	}, cfg.Notifier.Options)
+	})
 	if err := cfg.Notifier.Send(ctx, payload); err != nil {
 		fmt.Fprintf(os.Stderr, "mitsume run: success notify failed for %s: %v\n", name, err)
 	}
@@ -334,15 +327,14 @@ func (cfg Config) sendStartFailure(ctx context.Context, name string, exitCode in
 		Expected: "exit=0",
 		Time:     nowFn(cfg),
 	}
-	payload := notify.BuildFailure(failure, cfg.Notifier.Options)
+	payload := notify.BuildFailure(failure)
 	if err := cfg.Notifier.Send(ctx, payload); err != nil {
 		fmt.Fprintf(os.Stderr, "mitsume run: start-failure notify failed for %s: %v\n", name, err)
 	}
 }
 
 // sendRunFailure は子が終わった後の失敗通知。stderr ring buffer の末尾を
-// tailio 経由で切り出し、payload text 末尾に付ける (docs/notify.md § payload
-// 形式)。
+// tailio 経由で切り出し、payload text 末尾に付ける。
 func (cfg Config) sendRunFailure(
 	ctx context.Context, name string, exitCode int, reason string, ring *ringBuffer,
 ) {
@@ -355,7 +347,7 @@ func (cfg Config) sendRunFailure(
 		Expected: "exit=0",
 		Time:     nowFn(cfg),
 	}
-	payload := notify.BuildFailure(failure, cfg.Notifier.Options)
+	payload := notify.BuildFailure(failure)
 	tail := tailio.Truncate(ring.Bytes(), tailLines(cfg), tailBytes(cfg))
 	if len(tail) > 0 {
 		payload.Text = payload.Text + "\n" + string(bytes.TrimRight(tail, "\n"))
