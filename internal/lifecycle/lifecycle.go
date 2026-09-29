@@ -1,5 +1,5 @@
 // Package lifecycle は check / watch / run が共有する、dry-run に対応した
-// notifier と、process の停止・panic を知らせる通知を提供する。
+// notifier と、process の起動・停止・panic を知らせる通知を提供する。
 package lifecycle
 
 import (
@@ -46,6 +46,14 @@ func (n *Notifier) Send(ctx context.Context, payload notify.SlackPayload) error 
 	}
 
 	return n.Sender.Send(ctx, payload)
+}
+
+// SendStartup は watch が評価を始めることを知らせる。checks は評価する check の数。
+func SendStartup(ctx context.Context, n *Notifier, host string, checks int, now time.Time) error {
+	text := fmt.Sprintf("[mitsume] watch started on host=%s (checks=%d, time=%s)",
+		host, checks, now.Format(time.RFC3339))
+
+	return n.Send(ctx, notify.BuildAnnouncement(text))
 }
 
 // SendShutdown は watch の停止を知らせる。

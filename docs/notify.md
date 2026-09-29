@@ -10,10 +10,11 @@ mitsume がいつ、どんな通知を Slack に送るかをまとめる。通�
 | `run` の失敗 | `run` | 子プロセスが 0 以外で終わった、timeout で止めた、起動できなかったとき | `[mitsume] <name> failed (run: <理由>)` |
 | `run` の成功 | `run` | 子プロセスが 0 で終わったとき。`--quiet-on-success` なら送らない | `[mitsume] <name> succeeded (run: exit=0)` |
 | メッセージ | `notify` | 呼んだとき | 引数の文字列そのまま |
+| 起動 | `watch` | 起動時の検査を通り、最初の評価を始める前 | `[mitsume] watch started on host=<host> (checks=<check の数>, time=<時刻>)` |
 | 停止 | `watch` | SIGINT / SIGTERM を受けて止まるとき | `[mitsume] watch stopped on host=<host> (signal=SIGTERM, time=<時刻>)` |
 | panic | `check` / `watch` | 評価の途中で panic したとき。送ったあと exit 2 で終わる | `[mitsume] <subcommand> panicked on host=<host> (panic=<値>, time=<時刻>)` |
 
-`ping` と `version` は通知しない。
+`ping` と `version` は通知しない。起動と停止の通知は process ごとに 1 通ずつで、check の数や評価の結果によって増えることはない。
 
 failure は、同じ check が失敗し続ける間、評価のたびに (`interval` ごとに) 届く。次の通知は送らない。理由は [architecture.md](architecture.md#状態を持たない設計) にある。
 
@@ -46,7 +47,7 @@ failure の payload は次のようになる。`--dry-run` を付けると、こ
 }
 ```
 
-Slack では `text` が本文として表示され、その下に `attachments` が赤い帯付きの表として付く。`run` の成功では帯が緑 (`good`) になり、`observed` と `expected` はどちらも `exit=0` になる。メッセージ・停止・panic の通知は `text` だけで、`attachments` を付けない。
+Slack では `text` が本文として表示され、その下に `attachments` が赤い帯付きの表として付く。`run` の成功では帯が緑 (`good`) になり、`observed` と `expected` はどちらも `exit=0` になる。メッセージ・起動・停止・panic の通知は `text` だけで、`attachments` を付けない。
 
 `observed` と `expected` の例を示す。
 

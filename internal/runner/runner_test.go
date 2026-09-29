@@ -230,9 +230,7 @@ func TestRunOnce_AllOKSendsNoAlert(t *testing.T) {
 		responses:  []checker.Result{checker.Success()},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Host: "h1"}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	if len(sender.received()) != 0 {
 		t.Fatalf("expected 0 alerts, got %d", len(sender.received()))
 	}
@@ -271,9 +269,7 @@ func TestRunOnce_AllCheckersRunInParallel(t *testing.T) {
 		Checkers: []checker.Checker{makeCh("a"), makeCh("b"), makeCh("c")},
 		Notifier: n,
 	}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	if peak.Load() < 3 {
 		t.Fatalf("expected peak concurrency 3, got %d", peak.Load())
 	}
@@ -294,9 +290,7 @@ func TestRunOnce_BurstAllFailAlertsWithLastResult(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Host: "h1"}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	got := sender.received()
 	if len(got) != 1 {
 		t.Fatalf("expected 1 alert, got %d", len(got))
@@ -333,9 +327,7 @@ func TestRunOnce_BurstMidSuccessResetsNoAlert(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Host: "h1"}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	if len(sender.received()) != 0 {
 		t.Fatalf("expected 0 alerts (burst reset), got %d", len(sender.received()))
 	}
@@ -358,9 +350,7 @@ func TestRunOnce_ConfirmOneStrikeSkipsBurstAndAlertsImmediately(t *testing.T) {
 		Notifier: n, Host: "h1",
 		Sleeper: sleeper,
 	}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	if len(sender.received()) != 1 {
 		t.Fatalf("expected 1 alert, got %d", len(sender.received()))
 	}
@@ -383,9 +373,7 @@ func TestRunOnce_CmdStderrAppendedToAlertText(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Host: "h1"}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	got := sender.received()
 	if len(got) != 1 {
 		t.Fatalf("expected 1 alert, got %d", len(got))
@@ -409,9 +397,7 @@ func TestRunOnce_ContextCanceledSkipsAlert(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Host: "h1"}
-	if err := r.RunOnce(ctx); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(ctx)
 	if len(sender.received()) != 0 {
 		t.Fatalf("expected 0 alerts (ctx canceled mid-evaluate), got %d", len(sender.received()))
 	}
@@ -440,9 +426,7 @@ func TestRunOnce_ContainerCheckerGetsHardCapTimeout(t *testing.T) {
 		Notifier:                   n,
 		ContainerEvaluationTimeout: 250 * time.Millisecond,
 	}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	if !deadlineSet {
 		t.Fatalf("container checker must receive a ctx with deadline")
 	}
@@ -466,9 +450,7 @@ func TestRunOnce_ContainerCheckerHardCapDefaultsTo30s(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	if deadlineDur < 25*time.Second || deadlineDur > 30*time.Second {
 		t.Fatalf("default hard cap must be ~30s, got %s", deadlineDur)
 	}
@@ -488,9 +470,7 @@ func TestRunOnce_NonContainerCheckerNoDeadlineInjected(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	if deadlineSet {
 		t.Fatalf("non-container checker must not receive an injected deadline")
 	}
@@ -525,9 +505,7 @@ func TestRunOnce_DeadmanSnapshotFixedAcrossBurst(t *testing.T) {
 		Host:          "h1",
 		Sleeper:       sleeper,
 	}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
+	r.RunOnce(context.Background())
 	<-rewritten
 	if len(sender.received()) != 1 {
 		t.Fatalf("expected 1 alert (snapshot fixed across burst), got %d", len(sender.received()))
@@ -566,9 +544,7 @@ func TestRunLoop_DeadmanSnapshotRefreshedNextCycle(t *testing.T) {
 		Host:          "h1",
 		Sleeper:       sleeper,
 	}
-	if err := r.RunLoop(ctx); err != nil {
-		t.Fatalf("RunLoop: %v", err)
-	}
+	r.RunLoop(ctx)
 	if got := len(sender.received()); got != 1 {
 		t.Fatalf("expected exactly 1 alert (fresh snapshot on 2nd cycle), got %d", got)
 	}
@@ -604,9 +580,7 @@ func TestRunLoop_ImmediateFirstEvaluate(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Sleeper: sleeper}
-	if err := r.RunLoop(ctx); err != nil {
-		t.Fatalf("RunLoop: %v", err)
-	}
+	r.RunLoop(ctx)
 	if c.callCount() < 1 {
 		t.Fatalf("expected at least 1 immediate evaluate, got %d", c.callCount())
 	}
@@ -629,9 +603,7 @@ func TestRunLoop_SecondCycleAfterIntervalSleep(t *testing.T) {
 		},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Sleeper: sleeper}
-	if err := r.RunLoop(ctx); err != nil {
-		t.Fatalf("RunLoop: %v", err)
-	}
+	r.RunLoop(ctx)
 	if c.callCount() != 2 {
 		t.Fatalf("expected 2 evaluate calls, got %d", c.callCount())
 	}
@@ -658,9 +630,7 @@ func TestRunLoop_GracefulShutdownStopsNewEvaluates(t *testing.T) {
 	}
 	sleeper := &fakeSleeper{}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Sleeper: sleeper}
-	if err := r.RunLoop(ctx); err != nil {
-		t.Fatalf("RunLoop: %v", err)
-	}
+	r.RunLoop(ctx)
 	if c.callCount() != 1 {
 		t.Fatalf("expected exactly 1 evaluate (cancel mid-1st cycle), got %d", c.callCount())
 	}
@@ -678,9 +648,7 @@ func TestRunOnce_SendFailureDoesNotFailRunner(t *testing.T) {
 		responses:  []checker.Result{failure("boom", "s=500", "s=200")},
 	}
 	r := &runner.Runner{Checkers: []checker.Checker{c}, Notifier: n, Host: "h1"}
-	if err := r.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce should not return error when notify fails, got %v", err)
-	}
+	r.RunOnce(context.Background())
 	if len(sender.received()) != 1 {
 		t.Fatalf("expected 1 notify attempt, got %d", len(sender.received()))
 	}

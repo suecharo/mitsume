@@ -36,7 +36,7 @@ Slack に送らず、送るはずだった payload を JSON で stderr に出す
 | `ping` | heartbeat file を読み、書くはずだった内容を stderr に出す。ファイルは変えない |
 | `notify` | payload を stderr に出す |
 | `run` | 子プロセスはふだんどおり実行し、通知だけを stderr に出す |
-| `check` / `watch` | 評価はふだんどおり行い (HTTP の request も送る)、通知だけを stderr に出す。停止と panic の通知も同じ |
+| `check` / `watch` | 評価はふだんどおり行い (HTTP の request も送る)、通知だけを stderr に出す。起動・停止・panic の通知も同じ |
 
 Webhook URL の環境変数は `--dry-run` でも要る。値は使わないので `dummy` でよい。
 
@@ -124,7 +124,8 @@ mitsume watch --config /etc/mitsume/mitsume.json
 
 常駐して評価し続ける。systemd で動かす例は [recipes.md](recipes.md#systemd-で常駐監視する) にある。
 
-- 起動すると設定 JSON を検査し、全 check をすぐに 1 回評価する。そのあとは check ごとに、評価が終わってから `interval` だけ待って次を評価する
+- 起動すると設定 JSON を検査し、起動の通知を送ってから、全 check をすぐに 1 回評価する。起動の通知を送れなくても評価は始める
+- そのあとは check ごとに、評価が終わってから `interval` だけ待って次を評価する
 - SIGINT / SIGTERM を受けると、途中の評価を打ち切り (結果は捨てる)、停止の通知を送って終わる
 - 実行中に設定 JSON を読み直さない。設定を変えたら再起動する
 

@@ -75,13 +75,9 @@ type Runner struct {
 	Subcommand string
 }
 
-// RunOnce は全 checker を並列に 1 回評価する (check サブコマンド用)。個別 check
-// の failure は exit code に反映しない。返り値の
-// error は pre-flight の heartbeat 読み込み失敗など、mitsume 側の異常のみ。
-func (r *Runner) RunOnce(ctx context.Context) error {
-	if err := r.PreflightHeartbeat(); err != nil {
-		return err
-	}
+// RunOnce は全 checker を並列に 1 回評価する (check サブコマンド用)。
+// PreflightHeartbeat は呼び出し側が先に済ませておく。
+func (r *Runner) RunOnce(ctx context.Context) {
 	var wg sync.WaitGroup
 	for _, c := range r.Checkers {
 		wg.Add(1)
@@ -93,17 +89,12 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		}()
 	}
 	wg.Wait()
-
-	return nil
 }
 
 // RunLoop は起動直後に各 checker を 1 回評価し、以降は checker ごとに独立して
 // interval ごとに評価する (watch サブコマンド用)。ctx.Done で graceful shutdown
-// し、走行中の評価結果は破棄する。
-func (r *Runner) RunLoop(ctx context.Context) error {
-	if err := r.PreflightHeartbeat(); err != nil {
-		return err
-	}
+// し、走行中の評価結果は破棄する。PreflightHeartbeat は呼び出し側が先に済ませておく。
+func (r *Runner) RunLoop(ctx context.Context) {
 	var wg sync.WaitGroup
 	for _, c := range r.Checkers {
 		wg.Add(1)
@@ -115,8 +106,6 @@ func (r *Runner) RunLoop(ctx context.Context) error {
 		}()
 	}
 	wg.Wait()
-
-	return nil
 }
 
 // PreflightHeartbeat は deadman を含む config で起動時に heartbeat file の

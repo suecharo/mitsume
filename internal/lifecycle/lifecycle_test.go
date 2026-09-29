@@ -108,6 +108,49 @@ func TestSendShutdown_UsesAnnouncementWithoutAttachments(t *testing.T) {
 	}
 }
 
+func TestSendStartup_TextCarriesHostCheckCountAndTime(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 1, 9, 30, 0, 0, time.FixedZone("JST", 9*3600))
+	for _, checks := range []int{0, 1, 3} {
+		t.Run(fmt.Sprintf("checks=%d", checks), func(t *testing.T) {
+			t.Parallel()
+			sender := &recordingSender{}
+			n := &lifecycle.Notifier{Sender: sender}
+			if err := lifecycle.SendStartup(context.Background(), n, "api-prod-01", checks, now); err != nil {
+				t.Fatalf("SendStartup: %v", err)
+			}
+			got := sender.received()
+			if len(got) != 1 {
+				t.Fatalf("expected 1 call, got %d", len(got))
+			}
+			want := fmt.Sprintf("[mitsume] watch started on host=api-prod-01 (checks=%d, time=2026-07-01T09:30:00+09:00)", checks)
+			if got[0].Text != want {
+				t.Fatalf("text mismatch\n got: %q\nwant: %q", got[0].Text, want)
+			}
+			if len(got[0].Attachments) != 0 {
+				t.Fatalf("startup notice must not carry attachments, got %d", len(got[0].Attachments))
+			}
+		})
+	}
+}
+
+func TestSendStartup_DryRunWritesToStderrAndSkipsSender(t *testing.T) {
+	t.Parallel()
+	sender := &recordingSender{}
+	var buf bytes.Buffer
+	n := &lifecycle.Notifier{Sender: sender, DryRun: true, Stderr: &buf}
+	now := time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC)
+	if err := lifecycle.SendStartup(context.Background(), n, "h", 2, now); err != nil {
+		t.Fatalf("SendStartup: %v", err)
+	}
+	if len(sender.received()) != 0 {
+		t.Fatalf("expected sender to be skipped in dry-run mode")
+	}
+	if !strings.Contains(buf.String(), "watch started on host=h (checks=2") {
+		t.Fatalf("stderr should carry the startup text, got %q", buf.String())
+	}
+}
+
 func TestSendPanicNotice_TextIncludesPanicValueAndSubcommand(t *testing.T) {
 	t.Parallel()
 	sender := &recordingSender{}

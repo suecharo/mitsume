@@ -130,7 +130,8 @@ type runnerSetupOpts struct {
 
 // setupRunner は check / watch 共通の runner 構築。config を探索・load・validate
 // し、loader.BuildCheckers で []checker.Checker を作り、host / heartbeat path /
-// webhook URL を解決して *runner.Runner を返す。exitCode != 0 のときは error は
+// webhook URL を解決し、heartbeat file の pre-flight まで済ませて *runner.Runner
+// を返す。評価を始める前の検査はすべてここで行う。exitCode != 0 のときは error は
 // stderr に出力済みで、呼び出し側は exitCode で exit する。
 func setupRunner(opts runnerSetupOpts) (*runner.Runner, int) {
 	cwd, _ := os.Getwd()
@@ -179,15 +180,20 @@ func setupRunner(opts runnerSetupOpts) (*runner.Runner, int) {
 
 		return nil, 1
 	}
-	notifier := newNotifier(url, opts.DryRun)
-
-	return &runner.Runner{
+	r := &runner.Runner{
 		Checkers:      checkers,
 		HeartbeatFile: hbFile,
-		Notifier:      notifier,
+		Notifier:      newNotifier(url, opts.DryRun),
 		Host:          hostName,
 		Subcommand:    opts.Subcommand,
-	}, 0
+	}
+	if err := r.PreflightHeartbeat(); err != nil {
+		fmt.Fprintf(os.Stderr, "mitsume %s: %v\n", opts.Subcommand, err)
+
+		return nil, 1
+	}
+
+	return r, 0
 }
 
 // splitFlags は args を flag 群と位置引数に分ける。Go の flag package は最初の

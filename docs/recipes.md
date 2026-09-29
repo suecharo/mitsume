@@ -259,6 +259,8 @@ sudo systemctl enable --now mitsume.service
 journalctl -u mitsume.service -f
 ```
 
+有効にすると `[mitsume] watch started on host=<host> (checks=3, time=<時刻>)` が届く。届けば、Webhook の設定が正しく、監視が始まったことが分かる。止めたときと起動し直したときも、停止と起動の通知がそれぞれ届く。
+
 失敗したときの通知を見たいときは、`expect.status` を実際には返らない値 (`418` など) に変えて `check --dry-run` を呼ぶ。`confirm` の再確認を待つので、payload が出るまで 1 分ほどかかる。すぐに見たいときは、その check に `"confirm": false` を足す。
 
 ## container を監視する

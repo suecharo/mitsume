@@ -35,11 +35,7 @@ func runCheck(ctx context.Context, args []string) int {
 	if exitCode != 0 {
 		return exitCode
 	}
-	if err := r.RunOnce(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "mitsume check: %v\n", err)
-
-		return 1
-	}
+	r.RunOnce(ctx)
 
 	return 0
 }

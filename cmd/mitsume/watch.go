@@ -70,11 +70,12 @@ func runWatch(parentCtx context.Context, args []string) int {
 		}
 	}()
 
-	if err := r.RunLoop(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "mitsume watch: %v\n", err)
-
-		return 1
+	// 起動の通知は送り終えてから評価を始め、Slack 上で failure より先に届くようにする。
+	// ctx を渡すので、送っている間に SIGTERM を受けても待たされない。
+	if err := lifecycle.SendStartup(ctx, r.Notifier, r.Host, len(r.Checkers), time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, "mitsume watch: startup notify failed: %v\n", err)
 	}
+	r.RunLoop(ctx)
 	// capture goroutine の完了を待ってから receivedSig を read することで
 	// happens-before を確立する (RunLoop return と capture goroutine の write は
 	// 独立に走っているため、join なしでは Load が nil を返す race がある)。
