@@ -139,7 +139,7 @@ mitsume watch --config /etc/mitsume/mitsume.json
 
 ```text
 $ mitsume version
-mitsume version=1.1.0, commit=<sha>, built=<RFC3339>, go=go1.23.12
+mitsume version=1.1.0, commit=<sha>, built=<RFC3339>, go=go1.27.3
 ```
 
 release の binary には version・commit・build した日時が入る。`go install` で入れたものは `dev` / `none` / `unknown` になる。引数を渡すと exit 1 になる。

@@ -321,12 +321,12 @@ func decodeExit(err error) (int, error) {
 func (c *Checker) gracefulKill(proc *exec.Cmd, done <-chan error) {
 	_ = proc.Process.Signal(syscall.SIGTERM)
 	select {
-	case <-done:
+	case <-done: //nolint:errcheck // 止めた子の終了状態は判定に使わない
 		return
 	case <-time.After(c.grace):
 	}
 	_ = proc.Process.Kill()
-	<-done
+	<-done //nolint:errcheck // 止めた子の終了状態は判定に使わない
 }
 
 func (c *Checker) expectedString() string {

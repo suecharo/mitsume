@@ -21,7 +21,7 @@ mitsume version
 
 ### go install
 
-Go 1.23 以降で build できる。この方法では version の情報が入らない (`version=dev` になる)。
+Go 1.27 以降で build できる。この方法では version の情報が入らない (`version=dev` になる)。
 
 ```bash
 go install github.com/suecharo/mitsume/cmd/mitsume@latest
